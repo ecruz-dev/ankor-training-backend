@@ -3,7 +3,13 @@ import { json, badRequest, conflict, notFound, serverError } from "../utils/resp
 import { AuthLoginSchema } from "../schemas/schemas.ts";
 import { sbAdmin, sbAnon } from "../services/supabase.ts";
 import { rpcRegisterAthlete, rpcRegisterCoach, rpcRegisterParent } from "../services/signup.service..ts";
-import { generateMagicLink, sendWelcomeEmail } from "../services/email.service.ts";
+import {
+  generateInviteLink,
+  generateMagicLink,
+  sendWelcomeEmail,
+  sendBulkEvaluationReportEmails,
+  type EvaluationReportEmailInput,
+} from "../services/email.service.ts";
 
 
 const ALLOWED_POS = ["attack", "midfield", "defense", "faceoff", "goalie"] as const;
@@ -255,5 +261,126 @@ export async function handleAuthLogin(req: Request, origin: string | null) {
       athlete_id,
     },
   }, origin);
+}
+
+function readStringField(body: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = body[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return "";
+}
+
+export async function handleTestWelcomeEmail(
+  req: Request,
+  origin: string | null,
+  _params?: Record<string, string>,
+  ctx?: { user?: { email: string | null } },
+) {
+  if (req.method !== "POST") return badRequest("Use POST", origin);
+
+  const payload = await req.json().catch(() => null);
+  if (!payload || typeof payload !== "object") {
+    return badRequest("Invalid JSON body", origin);
+  }
+
+  const body = payload as Record<string, unknown>;
+  const emailFromBody = readStringField(body, "email");
+  const emailFromCtx = ctx?.user?.email?.trim() ?? "";
+  const email = emailFromBody || emailFromCtx;
+  if (!email) {
+    return badRequest("email is required", origin);
+  }
+
+  const fullName = readStringField(body, "fullName", "full_name") || null;
+  const actionLinkOverride = readStringField(body, "actionLink", "action_link");
+  const redirectTo = readStringField(body, "redirectTo", "redirect_to");
+  const from = readStringField(body, "from") || undefined;
+  const subject = readStringField(body, "subject") || undefined;
+
+  const linkTypeRaw = readStringField(body, "linkType", "link_type");
+  const linkType = linkTypeRaw ? linkTypeRaw.toLowerCase() : "magiclink";
+  if (linkType !== "magiclink" && linkType !== "invite") {
+    return badRequest("link_type must be 'magiclink' or 'invite'", origin);
+  }
+
+  try {
+    let actionLink = actionLinkOverride;
+    if (!actionLink) {
+      const dataValue = body.data;
+      const data =
+        dataValue && typeof dataValue === "object" && !Array.isArray(dataValue)
+          ? dataValue as Record<string, unknown>
+          : undefined;
+
+      if (linkType === "invite") {
+        const generated = await generateInviteLink(email, {
+          redirectTo: redirectTo || undefined,
+          data,
+        });
+        actionLink = generated.actionLink;
+      } else {
+        const generated = await generateMagicLink(email, {
+          redirectTo: redirectTo || undefined,
+          data,
+        });
+        actionLink = generated.actionLink;
+      }
+    }
+
+    await sendWelcomeEmail(email, fullName, actionLink, { from, subject });
+    return json({ ok: true, email, action_link: actionLink }, origin);
+  } catch (err) {
+    console.error("[handleTestWelcomeEmail] failed", err);
+    const message = err instanceof Error ? err.message : String(err);
+    return serverError(`Failed to send welcome email: ${message}`, origin);
+  }
+}
+
+export async function handleTestBulkEvaluationReportEmails(
+  req: Request,
+  origin: string | null,
+  _params?: Record<string, string>,
+  _ctx?: { user?: { email: string | null } },
+) {
+  if (req.method !== "POST") return badRequest("Use POST", origin);
+
+  const payload = await req.json().catch(() => null);
+  if (!payload || typeof payload !== "object") {
+    return badRequest("Invalid JSON body", origin);
+  }
+
+  const body = payload as Record<string, unknown>;
+  const itemsRaw = body.items;
+  if (!Array.isArray(itemsRaw) || itemsRaw.length === 0) {
+    return badRequest("items must be a non-empty array", origin);
+  }
+
+  for (const [index, item] of itemsRaw.entries()) {
+    if (!item || typeof item !== "object") {
+      return badRequest(`items[${index}] must be an object`, origin);
+    }
+  }
+
+  const subject = readStringField(body, "subject") || undefined;
+  const appName = readStringField(body, "appName") || undefined;
+
+  try {
+    const result = await sendBulkEvaluationReportEmails(
+      itemsRaw as EvaluationReportEmailInput[],
+      {
+        subject,
+        appName,
+      },
+    );
+    return json({ ok: true, result }, origin);
+  } catch (err) {
+    console.error("[handleTestBulkEvaluationReportEmails] failed", err);
+    const message = err instanceof Error ? err.message : String(err);
+    return serverError(`Failed to send evaluation report emails: ${message}`, origin);
+  }
 }
 

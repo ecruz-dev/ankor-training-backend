@@ -37,6 +37,12 @@ export function createTeamsRouter(): Router {
   );
   router.add(
     "GET",
+    "athletes-by-team",
+    handleAthletesByTeam,
+    [orgRoleGuardFromQuery("org_id", ["coach"])],
+  );
+  router.add(
+    "GET",
     ":id",
     getTeamByIdController,
     [orgRoleGuardFromQuery("org_id", ["coach"])],
@@ -51,12 +57,6 @@ export function createTeamsRouter(): Router {
     "DELETE",
     ":id",
     deleteTeamController,
-    [orgRoleGuardFromQuery("org_id", ["coach"])],
-  );
-  router.add(
-    "GET",
-    "athletes-by-team",
-    handleAthletesByTeam,
     [orgRoleGuardFromQuery("org_id", ["coach"])],
   );
 
