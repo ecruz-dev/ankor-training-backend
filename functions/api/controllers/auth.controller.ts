@@ -3,7 +3,13 @@ import { json, badRequest, conflict, notFound, serverError } from "../utils/resp
 import { AuthLoginSchema } from "../schemas/schemas.ts";
 import { sbAdmin, sbAnon } from "../services/supabase.ts";
 import { rpcRegisterAthlete, rpcRegisterCoach, rpcRegisterParent } from "../services/signup.service..ts";
-import { generateInviteLink, generateMagicLink, sendWelcomeEmail } from "../services/email.service.ts";
+import {
+  generateInviteLink,
+  generateMagicLink,
+  sendWelcomeEmail,
+  sendBulkEvaluationReportEmails,
+  type EvaluationReportEmailInput,
+} from "../services/email.service.ts";
 
 
 const ALLOWED_POS = ["attack", "midfield", "defense", "faceoff", "goalie"] as const;
@@ -331,6 +337,50 @@ export async function handleTestWelcomeEmail(
     console.error("[handleTestWelcomeEmail] failed", err);
     const message = err instanceof Error ? err.message : String(err);
     return serverError(`Failed to send welcome email: ${message}`, origin);
+  }
+}
+
+export async function handleTestBulkEvaluationReportEmails(
+  req: Request,
+  origin: string | null,
+  _params?: Record<string, string>,
+  _ctx?: { user?: { email: string | null } },
+) {
+  if (req.method !== "POST") return badRequest("Use POST", origin);
+
+  const payload = await req.json().catch(() => null);
+  if (!payload || typeof payload !== "object") {
+    return badRequest("Invalid JSON body", origin);
+  }
+
+  const body = payload as Record<string, unknown>;
+  const itemsRaw = body.items;
+  if (!Array.isArray(itemsRaw) || itemsRaw.length === 0) {
+    return badRequest("items must be a non-empty array", origin);
+  }
+
+  for (const [index, item] of itemsRaw.entries()) {
+    if (!item || typeof item !== "object") {
+      return badRequest(`items[${index}] must be an object`, origin);
+    }
+  }
+
+  const subject = readStringField(body, "subject") || undefined;
+  const appName = readStringField(body, "appName") || undefined;
+
+  try {
+    const result = await sendBulkEvaluationReportEmails(
+      itemsRaw as EvaluationReportEmailInput[],
+      {
+        subject,
+        appName,
+      },
+    );
+    return json({ ok: true, result }, origin);
+  } catch (err) {
+    console.error("[handleTestBulkEvaluationReportEmails] failed", err);
+    const message = err instanceof Error ? err.message : String(err);
+    return serverError(`Failed to send evaluation report emails: ${message}`, origin);
   }
 }
 
