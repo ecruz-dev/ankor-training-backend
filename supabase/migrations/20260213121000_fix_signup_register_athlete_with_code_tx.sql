@@ -30,6 +30,7 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+#variable_conflict use_column
 declare
   v_profile_id     uuid;
   v_athlete_id     uuid;
@@ -69,9 +70,9 @@ begin
 
   -- profiles (upsert)
   insert into public.profiles as pr
-      (id,        user_id,   first_name,          last_name,          full_name,                              email,         phone,                             role,      terms_accepted, terms_accepted_at)
+      (id,        user_id,   first_name,          last_name,          full_name,                              default_org_id, email,         phone,                             role,      terms_accepted, terms_accepted_at)
   values
-      (p_user_id, p_user_id, btrim(p_first_name), btrim(p_last_name), btrim(p_first_name||' '||p_last_name), lower(p_email), nullif(btrim(p_cell_number), ''), 'athlete', p_terms_accepted, case when p_terms_accepted then now() else null end)
+      (p_user_id, p_user_id, btrim(p_first_name), btrim(p_last_name), btrim(p_first_name||' '||p_last_name), v_org_id,        lower(p_email), nullif(btrim(p_cell_number), ''), 'athlete', p_terms_accepted, case when p_terms_accepted then now() else null end)
   on conflict (id) do update
     set first_name        = excluded.first_name,
         last_name         = excluded.last_name,
@@ -83,6 +84,16 @@ begin
         terms_accepted    = excluded.terms_accepted,
         terms_accepted_at = excluded.terms_accepted_at
   returning pr.id into v_profile_id;
+
+  -- org membership
+  insert into public.org_memberships (org_id, user_id, role, is_active)
+  values (v_org_id, p_user_id, 'athlete', true)
+  on conflict (org_id, user_id) do update
+    set role = case
+      when org_memberships.role = 'parent' then org_memberships.role
+      else excluded.role
+    end,
+    is_active = true;
 
   -- athletes: update existing row if present, otherwise insert
   select a.id
