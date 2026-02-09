@@ -1487,32 +1487,32 @@ export async function submitEvaluation(
   evaluationId: string,
   org_id: string,
 ): Promise<SubmitEvaluationResult> {
-  // 1) Update only if it isn't already completed (idempotent)
-  const { data: updated, error: updateErr } = await sbAdmin!
-    .from('evaluations')
-    .update({ status: 'completed' })
-    .eq('id', evaluationId)
-    .eq('org_id', org_id)
-    .in('status', ['not_started', 'in_progress'])
-    .select('id, status');
+  const toError = (err: unknown): Error => {
+    if (err instanceof Error) return err;
+    if (err && typeof err === "object" && "message" in err) {
+      const msg = (err as { message?: unknown }).message;
+      if (typeof msg === "string" && msg.trim()) return new Error(msg);
+    }
+    return new Error(typeof err === "string" ? err : JSON.stringify(err));
+  };
 
-  if (updateErr) return { ok: false, error: updateErr };
+  const { data, error } = await sbAdmin!.rpc("submit_evaluation_tx", {
+    p_evaluation_id: evaluationId,
+    p_org_id: org_id,
+  });
 
-  if (updated && updated.length > 0) {
-    return { ok: true, data: updated[0] };
+  if (error) return { ok: false, error: toError(error) };
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || !row.id) {
+    return { ok: false, error: new Error("Evaluation not found") };
   }
 
-  // 2) If nothing updated, fetch existing row (already completed or not found)
-  const { data: existingRows, error: getErr } = await sbAdmin!
-    .from('evaluations')
-    .select('id, status')
-    .eq('id', evaluationId)
-    .eq('org_id', org_id);
-
-  if (getErr) return { ok: false, error: getErr };
-
-  const existing = (existingRows ?? [])[0] ?? null;
-  if (!existing) return { ok: false, error: new Error('Evaluation not found') };
-
-  return { ok: true, data: existing };
+  return {
+    ok: true,
+    data: {
+      id: row.id,
+      status: row.status,
+    },
+  };
 }

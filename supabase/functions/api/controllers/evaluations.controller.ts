@@ -1007,6 +1007,12 @@ export async function handleSubmitEvaluation(
         { status: 400 },
       );
     }
+    if (!RE_UUID.test(id)) {
+      return jsonResponse(
+        { ok: false, error: "id (UUID) is required" },
+        { status: 400 },
+      );
+    }
 
     const url = new URL(req.url);
     const org_id = (url.searchParams.get("org_id") ?? "").trim();
@@ -1038,8 +1044,14 @@ export async function handleSubmitEvaluation(
     );
   } catch (err) {
     console.error("[handleSubmitEvaluation] Unexpected error", err);
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+        ? err
+        : "Internal server error";
     return jsonResponse(
-      { ok: false, error: "Internal server error" },
+      { ok: false, error: message },
       { status: 500 },
     );
   }

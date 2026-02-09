@@ -98,11 +98,10 @@ export function createEvaluationsRouter(): Router {
   ); 
   router.add(
     "POST",
-    ":id",
+    ":id/submit",
     handleSubmitEvaluation,
     [orgRoleGuardFromQuery("org_id", ["coach"])],
   );
-
 
   return router;
 }
