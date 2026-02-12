@@ -102,13 +102,6 @@ export function createEvaluationsRouter(): Router {
     handleSubmitEvaluation,
     [orgRoleGuardFromQuery("org_id", ["coach"])],
   );
-  router.add(
-    "POST",
-    ":id",
-    handleSubmitEvaluation,
-    [orgRoleGuardFromQuery("org_id", ["coach"])],
-  );
-
 
   return router;
 }

@@ -8,6 +8,8 @@ import {
    type EvaluationMatrixUpdateDto,
   toEvaluationDetailDto,
 } from "../dtos/evaluations.dto.ts";
+import { INVITE_REDIRECT_URL } from "../config/env.ts";
+import type { EvaluationReportEmailInput } from "./email.service.ts";
 
 type SubmitEvaluationResult =
   | { ok: true; data: { id: string; status: string } }
@@ -1515,4 +1517,193 @@ export async function submitEvaluation(
       status: row.status,
     },
   };
+}
+
+type EvaluationReportRecipient = {
+  email: string;
+  athleteFirstName: string | null;
+};
+
+type EvaluationReportContext = {
+  evaluationTitle: string;
+  evaluationDate: string;
+  coachName: string;
+  teamOrOrgName: string;
+  evaluationLink: string;
+};
+
+function formatEvaluationReportDate(value: string | null): string {
+  if (!value) return new Date().toISOString();
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return new Date().toISOString();
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+}
+
+function buildEvaluationLink(evaluationId: string): string {
+  const base = (INVITE_REDIRECT_URL ?? "").trim().replace(/\/+$/g, "");
+  if (!base) return evaluationId;
+  return `${base}/evaluations/${evaluationId}`;
+}
+
+async function getEvaluationReportContext(
+  evaluationId: string,
+  org_id: string,
+): Promise<EvaluationReportContext> {
+  const client = sbAdmin;
+  if (!client) {
+    throw new Error("Supabase client not initialized");
+  }
+
+  const { data, error } = await client
+    .from("evaluations")
+    .select(
+      `
+      id,
+      created_at,
+      coach:coaches (
+        full_name
+      ),
+      template:scorecard_templates (
+        name
+      ),
+      team:teams (
+        name
+      )
+    `,
+    )
+    .eq("id", evaluationId)
+    .eq("org_id", org_id)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    throw new Error("Evaluation not found");
+  }
+
+  const coachName =
+    typeof data?.coach?.full_name === "string" && data.coach.full_name.trim()
+      ? data.coach.full_name.trim()
+      : "your coach";
+
+  const evaluationTitle =
+    typeof data?.template?.name === "string" && data.template.name.trim()
+      ? data.template.name.trim()
+      : "Evaluation";
+
+  const teamOrOrgName =
+    typeof data?.team?.name === "string" && data.team.name.trim()
+      ? data.team.name.trim()
+      : "your organization";
+
+  return {
+    coachName,
+    evaluationTitle,
+    evaluationDate: formatEvaluationReportDate(data?.created_at ?? null),
+    teamOrOrgName,
+    evaluationLink: buildEvaluationLink(evaluationId),
+  };
+}
+
+async function listEvaluationReportRecipients(
+  evaluationId: string,
+): Promise<EvaluationReportRecipient[]> {
+  const client = sbAdmin;
+  if (!client) {
+    throw new Error("Supabase client not initialized");
+  }
+
+  const { data, error } = await client
+    .from("evaluation_items")
+    .select(
+      `
+      athlete:athletes!inner (
+        first_name,
+        profiles!inner (
+          email,
+          first_name
+        )
+      )
+    `,
+    )
+    .eq("evaluation_id", evaluationId);
+
+  if (error) {
+    throw error;
+  }
+
+  const recipients: EvaluationReportRecipient[] = [];
+  const seenEmails = new Set<string>();
+
+  for (const row of data ?? []) {
+    const athlete = (row as any)?.athlete;
+    if (!athlete) continue;
+
+    const profileRaw = Array.isArray(athlete?.profiles)
+      ? athlete.profiles[0]
+      : athlete?.profiles;
+    const email =
+      typeof profileRaw?.email === "string" && profileRaw.email.trim()
+        ? profileRaw.email.trim()
+        : "";
+    if (!email) continue;
+
+    const normalizedEmail = email.toLowerCase();
+    if (seenEmails.has(normalizedEmail)) continue;
+    seenEmails.add(normalizedEmail);
+
+    const athleteFirstName =
+      typeof athlete?.first_name === "string" && athlete.first_name.trim()
+        ? athlete.first_name.trim()
+        : typeof profileRaw?.first_name === "string" && profileRaw.first_name.trim()
+        ? profileRaw.first_name.trim()
+        : null;
+
+    recipients.push({
+      email: normalizedEmail,
+      athleteFirstName,
+    });
+  }
+
+  return recipients;
+}
+
+export async function buildEvaluationReportEmailInputs(
+  evaluationId: string,
+  org_id: string,
+): Promise<{ data: EvaluationReportEmailInput[]; error: unknown | null }> {
+  try {
+    const [context, recipients] = await Promise.all([
+      getEvaluationReportContext(evaluationId, org_id),
+      listEvaluationReportRecipients(evaluationId),
+    ]);
+
+    if (recipients.length === 0) {
+      return { data: [], error: null };
+    }
+
+    const items: EvaluationReportEmailInput[] = recipients.map((recipient) => ({
+      to: recipient.email,
+      athleteFirstName: recipient.athleteFirstName,
+      coachName: context.coachName,
+      evaluationTitle: context.evaluationTitle,
+      evaluationDate: context.evaluationDate,
+      teamOrOrgName: context.teamOrOrgName,
+      evaluationLink: context.evaluationLink,
+    }));
+
+    return { data: items, error: null };
+  } catch (err) {
+    return { data: [], error: err };
+  }
 }

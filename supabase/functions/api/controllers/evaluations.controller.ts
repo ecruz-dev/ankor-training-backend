@@ -16,7 +16,9 @@ import {
   getEvaluationById,
   applyEvaluationMatrixUpdateService,
   submitEvaluation,
+  buildEvaluationReportEmailInputs,
 } from "../services/evaluations.service.ts";
+import { sendBulkEvaluationReportEmails } from "../services/email.service.ts";
 import {
   badRequest,
   created,
@@ -1036,6 +1038,25 @@ export async function handleSubmitEvaluation(
       }
 
       return jsonResponse({ ok: false, error: message }, { status: 500 });
+    }
+
+    try {
+      const { data: emailItems, error: emailError } =
+        await buildEvaluationReportEmailInputs(id, org_id);
+
+      if (emailError) {
+        console.error("[handleSubmitEvaluation] email build error", emailError);
+      } else if (emailItems.length > 0) {
+        const emailResult = await sendBulkEvaluationReportEmails(emailItems);
+        if (emailResult.failed.length > 0) {
+          console.error(
+            "[handleSubmitEvaluation] email send failures",
+            emailResult.failed,
+          );
+        }
+      }
+    } catch (emailErr) {
+      console.error("[handleSubmitEvaluation] email send error", emailErr);
     }
 
     return jsonResponse(
