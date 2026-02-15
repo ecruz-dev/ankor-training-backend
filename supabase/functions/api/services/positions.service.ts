@@ -18,7 +18,7 @@ export async function listPositionsByOrgId(
   const { data: orgRow, error: orgError } = await client
     .from("organizations")
     .select("sport_id")
-    .eq("org_id", org_id)
+    .eq("id", org_id)
     .maybeSingle();
 
   if (orgError) {
