@@ -9,14 +9,14 @@ create or replace function public.create_athlete_tx(
   p_phone text,
   p_cell_number text,
   p_gender text,
-  p_positions public.lax_position[] default null,
   p_guardian_id uuid,
   p_guardian_user_id uuid,
   p_guardian_full_name text,
   p_guardian_email text,
   p_guardian_phone text,
   p_guardian_relationship text,
-  p_graduation_year smallint
+  p_graduation_year smallint,
+  p_positions public.lax_position[] default null
 ) returns uuid
 language plpgsql
 security definer
