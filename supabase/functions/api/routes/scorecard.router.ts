@@ -2,6 +2,8 @@ import { Router } from "./router.ts";
 import {
   handleScorecardsCreateTemplate,
   handleScorecardsList,
+  handleScorecardById,
+  handleScorecardUpdate,
   handleScorecardCategoriesByTemplate,
   handleScorecardSubskillsByCategory
 } from "../controllers/scorecard.controller.ts";
@@ -41,6 +43,22 @@ export function createScorecardsRouter(): Router {
     "subskills",
     handleScorecardSubskillsByCategory,
     [orgRoleGuardFromQuery("org_id", ["coach"])],
+  );
+
+  // GET /api/scorecard/:id
+  router.add(
+    "GET",
+    ":id",
+    handleScorecardById,
+    [orgRoleGuardFromQuery("org_id", ["coach"])],
+  );
+
+  // PATCH /api/scorecard/:id
+  router.add(
+    "PATCH",
+    ":id",
+    handleScorecardUpdate,
+    [orgRoleGuardFromBody("org_id", ["coach"])],
   );
 
   return router;
