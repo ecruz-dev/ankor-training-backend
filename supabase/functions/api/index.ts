@@ -22,6 +22,7 @@ import { createDrillsRouter } from "./routes/drills.router.ts";
 import { createPlansRouter } from "./routes/plans.router.ts";
 import { createUsersRouter } from "./routes/users.router.ts";
 import { createJoinCodesRouter } from "./routes/join_codes.router.ts";
+import { createPositionsRouter } from "./routes/positions.router.ts";
 import { authMiddleware } from "./utils/auth.ts";
 
 const router = new Router();
@@ -40,6 +41,7 @@ router.use("drills", createDrillsRouter(), [requireAuth]);
 router.use("plans", createPlansRouter(), [requireAuth]);
 router.use("users", createUsersRouter(), [requireAuth]);
 router.use("join-codes", createJoinCodesRouter(), [requireAuth]);
+router.use("positions", createPositionsRouter(), [requireAuth]);
 
 Deno.serve(async (req) => {
   const origin = req.headers.get("Origin") ?? "*";
