@@ -9,6 +9,7 @@ create or replace function public.create_athlete_tx(
   p_phone text,
   p_cell_number text,
   p_gender text,
+  p_positions public.lax_position[] default null,
   p_guardian_id uuid,
   p_guardian_user_id uuid,
   p_guardian_full_name text,
@@ -106,6 +107,12 @@ begin
     p_graduation_year
   )
   returning id into v_athlete_id;
+
+  if p_positions is not null and array_length(p_positions, 1) is not null then
+    insert into public.athlete_positions (athlete_id, position)
+    select v_athlete_id, pos.position
+    from unnest(p_positions) as pos(position);
+  end if;
 
   insert into public.team_memberships (team_id, athlete_id, created_at)
   select p_team_id, v_athlete_id, now()

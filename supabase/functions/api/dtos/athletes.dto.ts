@@ -27,6 +27,7 @@ export const CreateAthleteSchema = z.object({
   phone: z.string().trim().optional().nullable(),
   cell_number: z.string().trim().optional().nullable(),
   gender: z.string().trim().min(1, "gender is required"),
+  positions: z.array(z.string().trim().min(1)).min(1).optional().nullable(),
   parent_email: z.string().trim().email("parent_email is required").optional().nullable(),
   parent_full_name: z.string().trim().min(1, "parent_full_name is required").optional().nullable(),
   parent_mobile_phone: z

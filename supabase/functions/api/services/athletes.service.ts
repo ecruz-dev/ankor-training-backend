@@ -354,6 +354,7 @@ export async function createAthlete(
     p_phone: input.phone ?? null,
     p_cell_number: input.cell_number ?? null,
     p_gender: input.gender,
+    p_positions: input.positions ?? null,
     p_guardian_id: guardianId,
     p_guardian_user_id: guardianUserId,
     p_guardian_full_name: guardianFullName,
