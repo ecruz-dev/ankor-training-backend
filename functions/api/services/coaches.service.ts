@@ -1,4 +1,5 @@
 import { sbAdmin } from "./supabase.ts";
+import { generateMagicLink, sendWelcomeEmail } from "./email.service.ts";
 import type {
   CoachDto,
   CoachListFilterInput,
@@ -174,6 +175,15 @@ export async function createCoach(
       data: null,
       error: coachResult.error ?? new Error("Failed to load created coach"),
     };
+  }
+
+  try {
+    const welcomeName = coachResult.data.full_name ?? full_name ?? null;
+    const data: Record<string, unknown> = { role: "coach", user_id: userId };
+    const { actionLink } = await generateMagicLink(input.email, { data });
+    await sendWelcomeEmail(input.email, welcomeName, actionLink);
+  } catch (emailErr) {
+    console.error("[createCoach] welcome email failed", emailErr);
   }
 
   return coachResult;

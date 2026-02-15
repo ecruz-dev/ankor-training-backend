@@ -1,4 +1,5 @@
 import { sbAdmin } from "./supabase.ts";
+import { generateMagicLink, sendWelcomeEmail } from "./email.service.ts";
 import type {
   AthleteDto,
   AthleteListFilterInput,
@@ -415,6 +416,20 @@ export async function createAthlete(
       data: null,
       error: athleteResult.error ?? new Error("Failed to load created athlete"),
     };
+  }
+
+  try {
+    const welcomeName = athleteResult.data.full_name ??
+      full_name ??
+      buildFullName(input.first_name, input.last_name);
+    const role = guardianMatchesAthlete ? "parent" : "athlete";
+    const data: Record<string, unknown> = { role };
+    if (userId) data.user_id = userId;
+
+    const { actionLink } = await generateMagicLink(athleteEmail, { data });
+    await sendWelcomeEmail(athleteEmail, welcomeName ?? null, actionLink);
+  } catch (emailErr) {
+    console.error("[createAthlete] welcome email failed", emailErr);
   }
 
   return athleteResult;
