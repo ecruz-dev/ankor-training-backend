@@ -264,11 +264,7 @@ export async function getAthletesByTeam(
         graduation_year,
         cell_number,
         athlete_positions!inner (
-          position_id,
-          position:positions (
-            id,
-            code
-          )
+          position_id
         )
       )
     `)
@@ -280,13 +276,41 @@ export async function getAthletesByTeam(
     return { data: null, error };
   }
 
+  const positionIds = new Set<string>();
+  for (const row of data ?? []) {
+    const rawPos = (row as any)?.athlete?.athlete_positions;
+    const posRow = Array.isArray(rawPos) ? rawPos[0] ?? null : rawPos ?? null;
+    const position_id = posRow?.position_id;
+    if (typeof position_id === "string" && position_id.trim()) {
+      positionIds.add(position_id.trim());
+    }
+  }
+
+  const positionsById = new Map<string, string | null>();
+  if (positionIds.size > 0) {
+    const { data: posRows, error: posError } = await sbAdmin!
+      .from("positions")
+      .select("id, code")
+      .in("id", Array.from(positionIds));
+
+    if (posError) {
+      return { data: null, error: posError };
+    }
+
+    for (const row of posRows ?? []) {
+      const id = row?.id;
+      if (typeof id !== "string" || !id.trim()) continue;
+      positionsById.set(id, row?.code ?? null);
+    }
+  }
+
   const mapped: TeamAthlete[] = (data ?? []).map((row: any) => {
     const a = row.athlete ?? {};
 
     const rawPos = a.athlete_positions;
     const posRow = Array.isArray(rawPos) ? rawPos[0] ?? null : rawPos ?? null;
-    const position_id = posRow?.position_id ?? posRow?.position?.id ?? null;
-    const position = posRow?.position?.code ?? null;
+    const position_id = posRow?.position_id ?? null;
+    const position = position_id ? positionsById.get(position_id) ?? null : null;
 
     return {
       team_id: row.team_id,
