@@ -10,9 +10,11 @@ import {
   listEvaluationImprovementSkills,
   listEvaluationSkillVideos,
   listEvaluationSubskillRatings,
+  getEvaluationWorkoutSummary,
   listEvaluationWorkoutProgress,
   incrementEvaluationWorkoutProgress,
   listEvaluationWorkoutDrills,
+  listLatestEvaluationWorkoutDrills,
   getEvaluationById,
   applyEvaluationMatrixUpdateService,
   submitEvaluation,
@@ -698,6 +700,48 @@ export async function handleEvaluationSubskillRatings(
   }
 }
 
+export async function handleEvaluationWorkoutSummary(
+  req: Request,
+  _origin?: string | null,
+  _params?: Record<string, string>,
+  ctx?: RequestContext,
+): Promise<Response> {
+  try {
+    if (req.method !== "GET") {
+      return methodNotAllowed(["GET"]);
+    }
+
+    const url = new URL(req.url);
+    const org_id = (ctx?.org_id ?? url.searchParams.get("org_id") ?? "").trim();
+    if (!RE_UUID.test(org_id)) {
+      return badRequest("org_id (UUID) is required");
+    }
+
+    const athlete_id = (url.searchParams.get("athlete_id") ?? "").trim();
+    if (!RE_UUID.test(athlete_id)) {
+      return badRequest("athlete_id (UUID) is required");
+    }
+
+    const { data, error } = await getEvaluationWorkoutSummary({
+      org_id,
+      athlete_id,
+    });
+
+    if (error) {
+      console.error("[handleEvaluationWorkoutSummary] error", error);
+      return internalError(error);
+    }
+
+    return json(200, {
+      ok: true,
+      data: data ?? { total_evals: 0, total_reps: 0 },
+    });
+  } catch (err) {
+    console.error("[handleEvaluationWorkoutSummary] error", err);
+    return internalError(err);
+  }
+}
+
 export async function handleEvaluationWorkoutProgress(
   req: Request,
   _origin?: string | null,
@@ -866,6 +910,49 @@ export async function handleEvaluationWorkoutDrills(
     });
   } catch (err) {
     console.error("[handleEvaluationWorkoutDrills] error", err);
+    return internalError(err);
+  }
+}
+
+export async function handleLatestEvaluationWorkoutDrills(
+  req: Request,
+  _origin?: string | null,
+  _params?: Record<string, string>,
+  ctx?: RequestContext,
+): Promise<Response> {
+  try {
+    if (req.method !== "GET") {
+      return methodNotAllowed(["GET"]);
+    }
+
+    const url = new URL(req.url);
+    const org_id = (ctx?.org_id ?? url.searchParams.get("org_id") ?? "").trim();
+    if (!RE_UUID.test(org_id)) {
+      return badRequest("org_id (UUID) is required");
+    }
+
+    const athlete_id = (url.searchParams.get("athlete_id") ?? "").trim();
+    if (!RE_UUID.test(athlete_id)) {
+      return badRequest("athlete_id (UUID) is required");
+    }
+
+    const { data, count, error } = await listLatestEvaluationWorkoutDrills({
+      org_id,
+      athlete_id,
+    });
+
+    if (error) {
+      console.error("[handleLatestEvaluationWorkoutDrills] error", error);
+      return internalError(error);
+    }
+
+    return json(200, {
+      ok: true,
+      count,
+      data,
+    });
+  } catch (err) {
+    console.error("[handleLatestEvaluationWorkoutDrills] error", err);
     return internalError(err);
   }
 }

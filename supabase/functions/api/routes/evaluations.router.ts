@@ -7,9 +7,11 @@ import {
   handleEvaluationImprovementSkills,
   handleEvaluationSkillVideos,
   handleEvaluationSubskillRatings,
+  handleEvaluationWorkoutSummary,
   handleEvaluationWorkoutProgress,
   handleIncrementWorkoutProgress,
   handleEvaluationWorkoutDrills,
+  handleLatestEvaluationWorkoutDrills,
   handleEvaluationById,
   updateEvaluationMatrixController,
   handleSubmitEvaluation,
@@ -68,6 +70,12 @@ export function createEvaluationsRouter(): Router {
   );
   router.add(
     "GET",
+    "workout-summary",
+    handleEvaluationWorkoutSummary,
+    [orgRoleGuardFromQuery("org_id", ["coach", "athlete", "parent"])],
+  );
+  router.add(
+    "GET",
     ":id/workout-progress",
     handleEvaluationWorkoutProgress,
     [orgRoleGuardFromQuery("org_id", ["coach", "athlete", "parent"])],
@@ -76,6 +84,12 @@ export function createEvaluationsRouter(): Router {
     "GET",
     ":id/workout-drills",
     handleEvaluationWorkoutDrills,
+    [orgRoleGuardFromQuery("org_id", ["coach", "athlete", "parent"])],
+  );
+  router.add(
+    "GET",
+    "workout-drills/latest",
+    handleLatestEvaluationWorkoutDrills,
     [orgRoleGuardFromQuery("org_id", ["coach", "athlete", "parent"])],
   );
   router.add(
@@ -105,4 +119,3 @@ export function createEvaluationsRouter(): Router {
 
   return router;
 }
-

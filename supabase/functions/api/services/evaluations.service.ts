@@ -127,10 +127,25 @@ export type EvaluationWorkoutProgressUpdateInput = {
   evaluation_id: string;
 };
 
+export type EvaluationWorkoutSummaryFilters = {
+  org_id: string;
+  athlete_id: string;
+};
+
+export type EvaluationWorkoutSummary = {
+  total_evals: number;
+  total_reps: number;
+};
+
 export type EvaluationWorkoutDrillsFilters = {
   org_id: string;
   athlete_id: string;
   evaluation_id: string;
+};
+
+export type LatestEvaluationWorkoutDrillsFilters = {
+  org_id: string;
+  athlete_id: string;
 };
 
 export type EvaluationWorkoutDrillVideo = {
@@ -982,6 +997,72 @@ export async function listEvaluationSubskillRatings(
   };
 }
 
+export async function getEvaluationWorkoutSummary(
+  filters: EvaluationWorkoutSummaryFilters,
+): Promise<{ data: EvaluationWorkoutSummary | null; error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { data: null, error: new Error("Supabase client not initialized") };
+  }
+
+  const { org_id, athlete_id } = filters;
+
+  const evalsPromise = client
+    .from("evaluation_items")
+    .select(
+      `
+      evaluation_id,
+      evaluation:evaluations!inner (
+        org_id
+      )
+    `,
+    )
+    .eq("athlete_id", athlete_id)
+    .eq("evaluations.org_id", org_id);
+
+  const repsPromise = client
+    .from("evaluation_workout_progress")
+    .select("progress")
+    .eq("org_id", org_id)
+    .eq("athlete_id", athlete_id);
+
+  const [
+    { data: evalRows, error: evalError },
+    { data: repRows, error: repError },
+  ] = await Promise.all([evalsPromise, repsPromise]);
+
+  if (evalError) {
+    return { data: null, error: evalError };
+  }
+  if (repError) {
+    return { data: null, error: repError };
+  }
+
+  const evalIds = new Set<string>();
+  for (const row of evalRows ?? []) {
+    const evalId = (row as any)?.evaluation_id;
+    if (typeof evalId === "string" && evalId.trim()) {
+      evalIds.add(evalId);
+    }
+  }
+
+  let total_reps = 0;
+  for (const row of repRows ?? []) {
+    const value = Number((row as any)?.progress);
+    if (Number.isFinite(value)) {
+      total_reps += value;
+    }
+  }
+
+  return {
+    data: {
+      total_evals: evalIds.size,
+      total_reps,
+    },
+    error: null,
+  };
+}
+
 export async function listEvaluationWorkoutProgress(
   filters: EvaluationWorkoutProgressFilters,
 ): Promise<{ data: EvaluationWorkoutProgressRow[]; count: number; error: unknown }> {
@@ -1170,6 +1251,126 @@ export async function listEvaluationWorkoutDrills(
       : null;
 
   if (level === null) {
+    return { data: [], count: 0, error: null };
+  }
+
+  const { data: drillRows, error: drillsError } = await client
+    .from("evaluation_workout_drills")
+    .select("drill_id, level")
+    .eq("org_id", org_id)
+    .eq("athlete_id", athlete_id)
+    .eq("evaluation_id", evaluation_id)
+    .eq("level", level);
+
+  if (drillsError) {
+    return { data: [], count: 0, error: drillsError };
+  }
+
+  const rows = Array.isArray(drillRows) ? drillRows : [];
+  if (rows.length === 0) {
+    return { data: [], count: 0, error: null };
+  }
+
+  const drillIds = Array.from(
+    new Set(
+      rows
+        .map((row: any) => row?.drill_id)
+        .filter((id: unknown): id is string => typeof id === "string" && id.length > 0),
+    ),
+  );
+
+  const mediaByDrill = new Map<string, { title: string; thumbnailUrl: string | null }>();
+  if (drillIds.length > 0) {
+    const { data: mediaRows, error: mediaError } = await client
+      .from("drill_media")
+      .select("drill_id, title, thumbnail_url, sort_order, media_type")
+      .in("drill_id", drillIds)
+      .order("sort_order", { ascending: true });
+
+    if (mediaError) {
+      return { data: [], count: 0, error: mediaError };
+    }
+
+    for (const row of mediaRows ?? []) {
+      const drillId = row?.drill_id;
+      if (!drillId || mediaByDrill.has(drillId)) continue;
+      mediaByDrill.set(drillId, {
+        title: typeof row?.title === "string" ? row.title : "",
+        thumbnailUrl: row?.thumbnail_url ?? null,
+      });
+    }
+  }
+
+  const targetReps =
+    typeof progressRow?.progress === "number" && Number.isFinite(progressRow.progress)
+      ? progressRow.progress
+      : null;
+
+  const drills: EvaluationWorkoutDrillVideo[] = rows
+    .map((row: any) => {
+      const drillId = row?.drill_id;
+      if (typeof drillId !== "string" || !drillId) return null;
+      const media = mediaByDrill.get(drillId);
+      return {
+        id: drillId,
+        title: media?.title ?? "",
+        duration: "30",
+        thumbnailUrl: media?.thumbnailUrl ?? null,
+      };
+    })
+    .filter((item: EvaluationWorkoutDrillVideo | null): item is EvaluationWorkoutDrillVideo =>
+      Boolean(item)
+    );
+
+  return {
+    data: [
+      {
+        level,
+        title: `Level ${level}`,
+        targetReps,
+        drills,
+      },
+    ],
+    count: 1,
+    error: null,
+  };
+}
+
+export async function listLatestEvaluationWorkoutDrills(
+  filters: LatestEvaluationWorkoutDrillsFilters,
+): Promise<{ data: EvaluationWorkoutDrillLevel[]; count: number; error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { data: [], count: 0, error: new Error("Supabase client not initialized") };
+  }
+
+  const { org_id, athlete_id } = filters;
+
+  const { data: progressRow, error: progressError } = await client
+    .from("evaluation_workout_progress")
+    .select("evaluation_id, level, progress, created_at, updated_at")
+    .eq("org_id", org_id)
+    .eq("athlete_id", athlete_id)
+    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (progressError) {
+    return { data: [], count: 0, error: progressError };
+  }
+
+  const evaluation_id =
+    typeof progressRow?.evaluation_id === "string" && progressRow.evaluation_id.trim()
+      ? progressRow.evaluation_id.trim()
+      : null;
+
+  const level =
+    typeof progressRow?.level === "number" && Number.isFinite(progressRow.level)
+      ? progressRow.level
+      : null;
+
+  if (!evaluation_id || level === null) {
     return { data: [], count: 0, error: null };
   }
 
