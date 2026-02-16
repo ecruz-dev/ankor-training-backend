@@ -130,11 +130,13 @@ export type EvaluationWorkoutProgressUpdateInput = {
 export type EvaluationWorkoutSummaryFilters = {
   org_id: string;
   athlete_id: string;
+  user_id: string;
 };
 
 export type EvaluationWorkoutSummary = {
   total_evals: number;
   total_reps: number;
+  total_plans_shares: number;
 };
 
 export type EvaluationWorkoutDrillsFilters = {
@@ -1005,7 +1007,7 @@ export async function getEvaluationWorkoutSummary(
     return { data: null, error: new Error("Supabase client not initialized") };
   }
 
-  const { org_id, athlete_id } = filters;
+  const { org_id, athlete_id, user_id } = filters;
 
   const evalsPromise = client
     .from("evaluation_items")
@@ -1020,22 +1022,22 @@ export async function getEvaluationWorkoutSummary(
     .eq("athlete_id", athlete_id)
     .eq("evaluations.org_id", org_id);
 
-  const repsPromise = client
-    .from("evaluation_workout_progress")
-    .select("progress")
-    .eq("org_id", org_id)
-    .eq("athlete_id", athlete_id);
+  const summaryPromise = client.rpc("get_workout_summary", {
+    p_org_id: org_id,
+    p_athlete_id: athlete_id,
+    p_user_id: user_id,
+  });
 
   const [
     { data: evalRows, error: evalError },
-    { data: repRows, error: repError },
-  ] = await Promise.all([evalsPromise, repsPromise]);
+    { data: summaryRows, error: summaryError },
+  ] = await Promise.all([evalsPromise, summaryPromise]);
 
   if (evalError) {
     return { data: null, error: evalError };
   }
-  if (repError) {
-    return { data: null, error: repError };
+  if (summaryError) {
+    return { data: null, error: summaryError };
   }
 
   const evalIds = new Set<string>();
@@ -1046,21 +1048,42 @@ export async function getEvaluationWorkoutSummary(
     }
   }
 
-  let total_reps = 0;
-  for (const row of repRows ?? []) {
-    const value = Number((row as any)?.progress);
-    if (Number.isFinite(value)) {
-      total_reps += value;
-    }
-  }
+  const summaryRow = Array.isArray(summaryRows) ? summaryRows[0] ?? null : summaryRows ?? null;
+  const totalRepsRaw = (summaryRow as any)?.total_reps ?? 0;
+  const totalPlansRaw = (summaryRow as any)?.total_plans_shares ?? 0;
+  const total_reps = Number.isFinite(Number(totalRepsRaw)) ? Number(totalRepsRaw) : 0;
+  const total_plans_shares = Number.isFinite(Number(totalPlansRaw))
+    ? Number(totalPlansRaw)
+    : 0;
 
   return {
     data: {
       total_evals: evalIds.size,
       total_reps,
+      total_plans_shares,
     },
     error: null,
   };
+}
+
+export async function getTotalPlanSharesByUserId(
+  user_id: string,
+): Promise<{ data: number; error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { data: 0, error: new Error("Supabase client not initialized") };
+  }
+
+  const { count, error } = await client
+    .from("practice_plan_invitations")
+    .select("id", { count: "exact", head: true })
+    .eq("invited_by", user_id);
+
+  if (error) {
+    return { data: 0, error };
+  }
+
+  return { data: count ?? 0, error: null };
 }
 
 export async function listEvaluationWorkoutProgress(

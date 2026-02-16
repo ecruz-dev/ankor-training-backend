@@ -722,19 +722,24 @@ export async function handleEvaluationWorkoutSummary(
       return badRequest("athlete_id (UUID) is required");
     }
 
+    const user_id = ctx?.user?.id ?? "";
+    if (!RE_UUID.test(user_id)) {
+      return badRequest("user_id (UUID) is required");
+    }
+
     const { data, error } = await getEvaluationWorkoutSummary({
       org_id,
       athlete_id,
+      user_id,
     });
 
     if (error) {
       console.error("[handleEvaluationWorkoutSummary] error", error);
       return internalError(error);
     }
-
     return json(200, {
       ok: true,
-      data: data ?? { total_evals: 0, total_reps: 0 },
+      data: data ?? { total_evals: 0, total_reps: 0, total_plans_shares: 0 },
     });
   } catch (err) {
     console.error("[handleEvaluationWorkoutSummary] error", err);
