@@ -164,12 +164,15 @@ export async function createCoach(
 
   const coachResult = await getCoachById(coachId, input.org_id);
   if (coachResult.error || !coachResult.data) {
-    await client
-      .from("coaches")
-      .delete()
-      .eq("id", coachId)
-      .eq("org_id", input.org_id)
-      .catch(() => {});
+    try {
+      await client
+        .from("coaches")
+        .delete()
+        .eq("id", coachId)
+        .eq("org_id", input.org_id);
+    } catch {
+      // ignore cleanup failure
+    }
     await client.auth.admin.deleteUser(userId).catch(() => {});
     return {
       data: null,

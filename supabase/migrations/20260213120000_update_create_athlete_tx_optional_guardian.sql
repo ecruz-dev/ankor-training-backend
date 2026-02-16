@@ -1,3 +1,66 @@
+drop function if exists public.create_athlete_tx(
+  uuid,
+  uuid,
+  uuid,
+  text,
+  text,
+  text,
+  text,
+  text,
+  text,
+  text,
+  uuid,
+  uuid,
+  text,
+  text,
+  text,
+  text,
+  smallint
+);
+
+drop function if exists public.create_athlete_tx(
+  uuid,
+  uuid,
+  uuid,
+  text,
+  text,
+  text,
+  text,
+  text,
+  text,
+  text,
+  uuid,
+  uuid,
+  text,
+  text,
+  text,
+  text,
+  smallint,
+  public.lax_position[]
+);
+
+drop function if exists public.create_athlete_tx(
+  uuid,
+  uuid,
+  uuid,
+  text,
+  text,
+  text,
+  text,
+  text,
+  text,
+  text,
+  uuid,
+  uuid,
+  text,
+  text,
+  text,
+  text,
+  smallint,
+  public.lax_position[],
+  uuid
+);
+
 create or replace function public.create_athlete_tx(
   p_user_id uuid,
   p_org_id uuid,
@@ -15,8 +78,7 @@ create or replace function public.create_athlete_tx(
   p_guardian_email text,
   p_guardian_phone text,
   p_guardian_relationship text,
-  p_graduation_year smallint,
-  p_positions public.lax_position[] default null
+  p_graduation_year smallint
 ) returns uuid
 language plpgsql
 security definer
@@ -107,12 +169,6 @@ begin
     p_graduation_year
   )
   returning id into v_athlete_id;
-
-  if p_positions is not null and array_length(p_positions, 1) is not null then
-    insert into public.athlete_positions (athlete_id, position)
-    select v_athlete_id, pos.position
-    from unnest(p_positions) as pos(position);
-  end if;
 
   insert into public.team_memberships (team_id, athlete_id, created_at)
   select p_team_id, v_athlete_id, now()

@@ -1,12 +1,43 @@
+-- Update athlete_positions to store FK to positions instead of lax_position enum
+
+alter table public.athlete_positions
+  add column if not exists position_id uuid;
+
+-- Backfill position_id from existing enum values using org->sport mapping
+update public.athlete_positions as ap
+set position_id = p.id
+from public.athletes as a
+join public.organizations as o on o.id = a.org_id
+join public.positions as p
+  on p.sport_id = o.sport_id
+ and p.code = ap.position::text
+where a.id = ap.athlete_id;
+
+-- Enforce new FK + primary key
+alter table public.athlete_positions
+  alter column position_id set not null;
+
+alter table public.athlete_positions
+  drop constraint if exists athlete_positions_pkey;
+
+alter table public.athlete_positions
+  add constraint athlete_positions_position_id_fkey
+    foreign key (position_id) references public.positions (id) on delete cascade,
+  add constraint athlete_positions_pkey primary key (athlete_id, position_id);
+
+alter table public.athlete_positions
+  drop column if exists position;
+
+-- Update signup_register_athlete_with_code_tx to accept position IDs
 drop function if exists public.signup_register_athlete_with_code_tx(
   uuid,
   uuid,
   text,
   text,
   text,
-  smallint,
+  integer,
   text,
-  uuid[],
+  public.lax_position[],
   boolean
 );
 

@@ -1,0 +1,3 @@
+# CORS preflight requests do not include Authorization headers.
+# We enforce auth in the router middleware instead.
+verify_jwt = false

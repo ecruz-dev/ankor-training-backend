@@ -223,6 +223,24 @@ export async function createAthlete(
     return { data: null, error: new Error("athlete email already exists") };
   }
 
+  let positionId: string | null = null;
+  if (input.position_id) {
+    const { data: positionRow, error: positionError } = await client
+      .from("positions")
+      .select("id")
+      .eq("id", input.position_id)
+      .maybeSingle();
+
+    if (positionError) {
+      return { data: null, error: positionError };
+    }
+
+    if (!positionRow?.id) {
+      return { data: null, error: new Error("Position not found") };
+    }
+    positionId = positionRow.id;
+  }
+
   const guardianEmail = input.parent_email?.trim() ?? null;
   const guardianPhone = input.parent_mobile_phone?.trim() ?? null;
   const guardianFullName = input.parent_full_name?.trim() ?? null;
@@ -355,7 +373,6 @@ export async function createAthlete(
     p_phone: input.phone ?? null,
     p_cell_number: input.cell_number ?? null,
     p_gender: input.gender,
-    p_positions: input.positions ?? null,
     p_guardian_id: guardianId,
     p_guardian_user_id: guardianUserId,
     p_guardian_full_name: guardianFullName,
@@ -392,25 +409,68 @@ export async function createAthlete(
     return { data: null, error: new Error("Failed to create athlete") };
   }
 
+  if (positionId) {
+    const { error: positionsError } = await client
+      .from("athlete_positions")
+      .insert({
+        athlete_id: athleteId,
+        position_id: positionId,
+      });
+
+    if (positionsError) {
+      try {
+        await client
+          .from("athletes")
+          .delete()
+          .eq("id", athleteId)
+          .eq("org_id", input.org_id);
+      } catch {
+        // ignore cleanup failure
+      }
+      if (athleteUserCreated && userId) {
+        await client.auth.admin.deleteUser(userId).catch(() => {});
+      }
+      if (guardianUserCreated && guardianUserId) {
+        await client.auth.admin.deleteUser(guardianUserId).catch(() => {});
+        try {
+          await client
+            .from("guardian_contacts")
+            .delete()
+            .eq("org_id", input.org_id)
+            .ilike("email", guardianEmail);
+        } catch {
+          // ignore cleanup failure
+        }
+      }
+      return { data: null, error: positionsError };
+    }
+  }
+
   const athleteResult = await getAthleteById(athleteId, input.org_id);
   if (athleteResult.error || !athleteResult.data) {
-    await client
-      .from("athletes")
-      .delete()
-      .eq("id", athleteId)
-      .eq("org_id", input.org_id)
-      .catch(() => {});
+    try {
+      await client
+        .from("athletes")
+        .delete()
+        .eq("id", athleteId)
+        .eq("org_id", input.org_id);
+    } catch {
+      // ignore cleanup failure
+    }
     if (athleteUserCreated && userId) {
       await client.auth.admin.deleteUser(userId).catch(() => {});
     }
     if (guardianUserCreated && guardianUserId) {
       await client.auth.admin.deleteUser(guardianUserId).catch(() => {});
-      await client
-        .from("guardian_contacts")
-        .delete()
-        .eq("org_id", input.org_id)
-        .ilike("email", guardianEmail)
-        .catch(() => {});
+      try {
+        await client
+          .from("guardian_contacts")
+          .delete()
+          .eq("org_id", input.org_id)
+          .ilike("email", guardianEmail);
+      } catch {
+        // ignore cleanup failure
+      }
     }
     return {
       data: null,

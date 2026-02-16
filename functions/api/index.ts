@@ -41,7 +41,7 @@ router.use("drills", createDrillsRouter(), [requireAuth]);
 router.use("plans", createPlansRouter(), [requireAuth]);
 router.use("users", createUsersRouter(), [requireAuth]);
 router.use("join-codes", createJoinCodesRouter(), [requireAuth]);
-router.use("positions", createPositionsRouter(), [requireAuth]);
+router.use("positions", createPositionsRouter());
 
 Deno.serve(async (req) => {
   const origin = req.headers.get("Origin") ?? "*";

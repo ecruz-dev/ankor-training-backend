@@ -18,6 +18,8 @@ export type TeamAthlete = {
   phone: string | null;
   graduation_year: number | null;
   cell_number: string | null;
+  position_id: string | null;
+  position: string | null;
 };
 
 export async function listTeamsWithAthletes(org_id: string): Promise<{
@@ -262,7 +264,11 @@ export async function getAthletesByTeam(
         graduation_year,
         cell_number,
         athlete_positions!inner (
-          position
+          position_id,
+          position:positions (
+            id,
+            code
+          )
         )
       )
     `)
@@ -278,9 +284,9 @@ export async function getAthletesByTeam(
     const a = row.athlete ?? {};
 
     const rawPos = a.athlete_positions;
-    const position = Array.isArray(rawPos)
-      ? rawPos[0]?.position ?? null
-      : rawPos?.position ?? null;
+    const posRow = Array.isArray(rawPos) ? rawPos[0] ?? null : rawPos ?? null;
+    const position_id = posRow?.position_id ?? posRow?.position?.id ?? null;
+    const position = posRow?.position?.code ?? null;
 
     return {
       team_id: row.team_id,
@@ -293,6 +299,7 @@ export async function getAthletesByTeam(
       phone: a.phone ?? null,
       graduation_year: a.graduation_year ?? null,
       cell_number: a.cell_number ?? null,
+      position_id,
       position,
     };
   });

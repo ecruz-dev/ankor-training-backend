@@ -12,10 +12,6 @@ import {
 } from "../services/email.service.ts";
 
 
-const ALLOWED_POS = ["attack", "midfield", "defense", "faceoff", "goalie"] as const;
-type AllowedPos = (typeof ALLOWED_POS)[number];
-const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, "");
-
 export async function handleAuthSignup(req: Request, origin: string | null) {
   if (req.method !== "POST") return badRequest("Use POST", origin);
 
@@ -26,6 +22,9 @@ export async function handleAuthSignup(req: Request, origin: string | null) {
     return badRequest(msg, origin);
   }
   const base = parsed.data as any; // athlete | coach | parent
+  const positionId = base.role === "athlete" && typeof base.position_id === "string"
+    ? base.position_id.trim()
+    : "";
 
   // Create auth user
   const { data: created, error: createErr } = await sbAdmin!.auth.admin.createUser({
@@ -37,7 +36,9 @@ export async function handleAuthSignup(req: Request, origin: string | null) {
       username: base.username ?? null,
       cell_number: base.cellNumber ?? null,
       join_code: base.joinCode,
-      ...(base.role === "athlete" ? { graduation_year: base.graduationYear, positions: base.positions } : {}),
+      ...(base.role === "athlete"
+        ? { graduation_year: base.graduationYear, position_id: positionId || null }
+        : {}),
     },
     app_metadata: { role: base.role },
     email_confirm: true,
@@ -55,9 +56,7 @@ export async function handleAuthSignup(req: Request, origin: string | null) {
   let rpcArgs: Record<string, unknown> = {};
   try {
     if (base.role === "athlete") {
-      const normalized = (base.positions as string[]).map((p) => normalize(p)) as string[];
-      const invalid = normalized.filter((p) => !ALLOWED_POS.includes(p as AllowedPos));
-      if (invalid.length) return badRequest("Invalid position value(s).", origin);
+      const positionIds = positionId ? [positionId] : [];
 
       rpcName = "signup_register_athlete_with_code_tx";
       rpcArgs = {
@@ -68,7 +67,7 @@ export async function handleAuthSignup(req: Request, origin: string | null) {
         p_email: base.email,
         p_graduation_year: base.graduationYear,
         p_cell_number: base.cellNumber ?? null,
-        p_positions: normalized as AllowedPos[],
+        p_positions: positionIds,
         p_terms_accepted: true,
       };
       var { data: txData, error: txErr } = await rpcRegisterAthlete(rpcArgs);

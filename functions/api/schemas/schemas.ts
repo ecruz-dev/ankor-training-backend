@@ -17,7 +17,7 @@ export const AthleteSchema = z.object({
   lastName: z.string().trim().min(1),
   cellNumber: z.string().optional(),
   graduationYear: z.number({ coerce: true }).int().min(1900).max(2100),
-  positions: z.array(z.string()).nonempty(),
+  position_id: uuid(),
   termsAccepted: z.literal(true),
   username: z.string().trim().min(3).max(50).optional(),
 });
