@@ -235,3 +235,43 @@ export async function updateCoach(
 
   return await getCoachById(coach_id, org_id);
 }
+
+export type CoachSummary = {
+  total_teams: number;
+  total_athletes: number;
+  total_evaluations: number;
+  total_plans_share: number;
+};
+
+export async function getCoachSummary(
+  org_id: string,
+  coach_id: string,
+): Promise<{ data: CoachSummary | null; error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { data: null, error: new Error("Supabase client not initialized") };
+  }
+
+  const { data, error } = await client.rpc("get_coach_summary", {
+    p_org_id: org_id,
+    p_coach_id: coach_id,
+  });
+
+  if (error) return { data: null, error };
+
+  const row = Array.isArray(data) ? data[0] ?? null : data ?? null;
+  const toNumber = (value: unknown): number => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+  };
+
+  return {
+    data: {
+      total_teams: toNumber((row as any)?.total_teams),
+      total_athletes: toNumber((row as any)?.total_athletes),
+      total_evaluations: toNumber((row as any)?.total_evaluations),
+      total_plans_share: toNumber((row as any)?.total_plans_share),
+    },
+    error: null,
+  };
+}

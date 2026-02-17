@@ -2,6 +2,7 @@ import { Router } from "./router.ts";
 import {
   createCoachController,
   getCoachByIdController,
+  getCoachSummaryController,
   listCoachesController,
   updateCoachController,
 } from "../controllers/coaches.controller.ts";
@@ -26,6 +27,12 @@ export function createCoachesRouter(): Router {
     "GET",
     ":id",
     getCoachByIdController,
+    [orgRoleGuardFromQuery("org_id", ["coach"])],
+  );
+  router.add(
+    "GET",
+    ":id/summary",
+    getCoachSummaryController,
     [orgRoleGuardFromQuery("org_id", ["coach"])],
   );
   router.add(

@@ -7,6 +7,7 @@ import {
 import {
   createCoach,
   getCoachById,
+  getCoachSummary,
   listCoaches,
   updateCoach,
 } from "../services/coaches.service.ts";
@@ -135,6 +136,50 @@ export async function getCoachByIdController(
   }
 
   return json(200, { ok: true, coach: data });
+}
+
+export async function getCoachSummaryController(
+  req: Request,
+  _origin?: string | null,
+  params?: { id?: string },
+  ctx?: RequestContext,
+): Promise<Response> {
+  if (req.method !== "GET") {
+    return methodNotAllowed(["GET"]);
+  }
+
+  const coach_id = params?.id;
+  if (!coach_id) {
+    return badRequest("Missing 'id' path parameter");
+  }
+
+  const idParsed = GetCoachByIdSchema.safeParse({ coach_id });
+  if (!idParsed.success) {
+    const message = idParsed.error.issues.map((issue) => issue.message).join("; ");
+    return badRequest(message);
+  }
+
+  const url = new URL(req.url);
+  const org_id = (ctx?.org_id ?? url.searchParams.get("org_id") ?? "").trim();
+  if (!RE_UUID.test(org_id)) {
+    return badRequest("org_id (UUID) is required");
+  }
+
+  const { data, error } = await getCoachSummary(org_id, idParsed.data.coach_id);
+  if (error) {
+    console.error("[getCoachSummaryController] fetch error", error);
+    return internalError(error, "Failed to fetch coach summary");
+  }
+
+  return json(200, {
+    ok: true,
+    data: data ?? {
+      total_teams: 0,
+      total_athletes: 0,
+      total_evaluations: 0,
+      total_plans_share: 0,
+    },
+  });
 }
 
 export async function updateCoachController(
