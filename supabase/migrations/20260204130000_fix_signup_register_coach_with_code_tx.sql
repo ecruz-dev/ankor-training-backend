@@ -116,6 +116,23 @@ begin
     where c.id = v_coach_id;
   end if;
 
+  -- team membership for coach (link coach to chosen team)
+  if v_team_id is not null then
+    update public.team_memberships as tm
+      set coach_id = v_coach_id
+    where tm.team_id = v_team_id
+      and tm.coach_id is null;
+
+    insert into public.team_memberships (team_id, coach_id, created_at)
+    select v_team_id, v_coach_id, now()
+    where not exists (
+      select 1
+      from public.team_memberships
+      where team_id = v_team_id
+        and coach_id = v_coach_id
+    );
+  end if;
+
   -- bump uses_count if that column exists
   select exists (
     select 1
