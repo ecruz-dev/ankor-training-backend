@@ -5,6 +5,8 @@ import {
   handleSkillCreate,
   handleSkillMediaCreate,
   handleSkillMediaUploadUrl,
+  handleSkillMediaPlayback,
+  handleSkillUpdate,
   handleSkillsList,
 } from "../controllers/skills.controller.ts";
 import { orgRoleGuardFromBody, orgRoleGuardFromQuery } from "../utils/guards.ts";
@@ -29,6 +31,18 @@ export function createSkillsRouter(): Router {
     "media",
     handleSkillMediaCreate,
     [orgRoleGuardFromBody("org_id", ["coach"])],
+  );
+  router.add(
+    "GET",
+    "media/:skill_id/play",
+    handleSkillMediaPlayback,
+    [orgRoleGuardFromQuery("org_id", ["coach", "athlete", "parent"])],
+  );
+  router.add(
+    "PATCH",
+    ":id",
+    handleSkillUpdate,
+    [orgRoleGuardFromQuery("org_id", ["coach"])],
   );
   // GET /api/skills/list
   router.add(

@@ -3,13 +3,16 @@ import {
   CreateSkillSchema,
   SkillMediaCreateSchema,
   SkillMediaUploadSchema,
+  UpdateSkillSchema,
 } from "../dtos/skills.dto.ts";
 import {
   createSkill,
   createSkillMedia,
   createSkillMediaUploadUrl,
   getSkillById,
+  getSkillMediaPlaybackUrl,
   listSkills,
+  updateSkill,
 } from "../services/skills.service.ts";
 import type { RequestContext } from "../routes/router.ts";
 import { isUuid } from "../utils/uuid.ts";
@@ -19,6 +22,31 @@ function inferSkillMediaType(contentType: string): "video" | "image" | "document
   if (normalized.startsWith("video/")) return "video";
   if (normalized.startsWith("image/")) return "image";
   return "document";
+}
+
+function parseStorageObjectUrl(
+  value: string,
+): { bucket: string; path: string } | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+
+  const prefix = "/storage/v1/object/";
+  if (!url.pathname.startsWith(prefix)) return null;
+
+  const rest = url.pathname.slice(prefix.length);
+  const parts = rest.split("/").filter(Boolean);
+  if (parts.length < 2) return null;
+
+  const offset = (parts[0] === "public" || parts[0] === "sign") ? 1 : 0;
+  if (parts.length - offset < 2) return null;
+
+  const bucket = parts[offset];
+  const path = parts.slice(offset + 1).join("/");
+  return { bucket, path };
 }
 
 export async function handleSkillCreate(
@@ -120,7 +148,26 @@ export async function handleSkillMediaCreate(
     return badRequest("org_id does not match authorized organization", origin);
   }
 
-  const { data, error } = await createSkillMedia(parsed.data);
+  let bucket = parsed.data.bucket ?? null;
+  let object_path = parsed.data.object_path ?? parsed.data.storage_path ?? null;
+
+  if (!object_path && parsed.data.url) {
+    const parsedUrl = parseStorageObjectUrl(parsed.data.url);
+    if (parsedUrl) {
+      bucket = bucket ?? parsedUrl.bucket;
+      object_path = parsedUrl.path;
+    }
+  }
+
+  if (!object_path) {
+    return badRequest("object_path or url is required", origin);
+  }
+
+  const { data, error } = await createSkillMedia({
+    ...parsed.data,
+    bucket: bucket ?? undefined,
+    object_path,
+  });
   if (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.toLowerCase().includes("not found")) {
@@ -130,6 +177,94 @@ export async function handleSkillMediaCreate(
   }
 
   return json({ ok: true, media: data }, origin, 201);
+}
+
+export async function handleSkillUpdate(
+  req: Request,
+  origin: string | null,
+  params?: Record<string, string>,
+  ctx?: RequestContext,
+) {
+  if (req.method !== "PATCH") return badRequest("Method not allowed", origin);
+
+  const skill_id = params?.id ?? "";
+  if (!isUuid(skill_id)) return badRequest("id (UUID) is required", origin);
+
+  const url = new URL(req.url);
+  const org_id = ctx?.org_id ?? url.searchParams.get("org_id") ?? "";
+  if (!isUuid(org_id)) return badRequest("org_id (UUID) is required", origin);
+
+  const raw = await req.json().catch(() => null);
+  if (!raw || typeof raw !== "object") {
+    return badRequest("Invalid JSON payload", origin);
+  }
+
+  const parsed = UpdateSkillSchema.safeParse(raw);
+  if (!parsed.success) {
+    const message = parsed.error.issues.map((issue) => issue.message).join("; ");
+    return badRequest(message, origin);
+  }
+
+  const hasPatch = Object.values(parsed.data).some((value) => value !== undefined);
+  if (!hasPatch) {
+    return badRequest("No updates provided", origin);
+  }
+
+  const { data, error } = await updateSkill(skill_id, org_id, parsed.data);
+  if (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.toLowerCase().includes("not found")) {
+      return notFound("Skill not found", origin);
+    }
+    if (message.toLowerCase().includes("no updates")) {
+      return badRequest(message, origin);
+    }
+    return serverError(message, origin);
+  }
+
+  return json({ ok: true, skill: data }, origin, 200);
+}
+
+export async function handleSkillMediaPlayback(
+  req: Request,
+  origin: string | null,
+  params?: Record<string, string>,
+  ctx?: RequestContext,
+) {
+  if (req.method !== "GET") return badRequest("Method not allowed", origin);
+
+  const skill_id = params?.skill_id ?? "";
+  if (!isUuid(skill_id)) return badRequest("skill_id (UUID) is required", origin);
+
+  const url = new URL(req.url);
+  const org_id = ctx?.org_id ?? url.searchParams.get("org_id") ?? "";
+  if (!isUuid(org_id)) return badRequest("org_id (UUID) is required", origin);
+
+  const rawExpires = url.searchParams.get("expires_in");
+  const parsedExpires = rawExpires ? Number.parseInt(rawExpires, 10) : NaN;
+  const expires_in = Number.isFinite(parsedExpires)
+    ? Math.min(Math.max(parsedExpires, 60), 60 * 60 * 24)
+    : 60 * 60;
+
+  const { data, error } = await getSkillMediaPlaybackUrl(skill_id, org_id, expires_in);
+  if (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.toLowerCase().includes("not found")) {
+      return notFound("Skill media not found", origin);
+    }
+    return serverError(message, origin);
+  }
+
+  return json(
+    {
+      ok: true,
+      media: data!.media,
+      play_url: data!.play_url,
+      expires_in: data!.expires_in,
+    },
+    origin,
+    200,
+  );
 }
 
 export async function handleSkillsList(
