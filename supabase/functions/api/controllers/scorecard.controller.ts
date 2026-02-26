@@ -188,7 +188,15 @@ export async function handleScorecardsCreateTemplate(
   if (req.method !== "POST") return badRequest("Method not allowed", origin);
 
   const raw = await req.json().catch(() => null);
-  const parsed = ScorecardTemplateCreateSchema.safeParse(raw);
+  const normalized = (() => {
+    if (!raw || typeof raw !== "object") return raw;
+    const body = raw as Record<string, unknown>;
+    if (body.categories === undefined && Array.isArray(body.add_categories)) {
+      return { ...body, categories: body.add_categories };
+    }
+    return body;
+  })();
+  const parsed = ScorecardTemplateCreateSchema.safeParse(normalized);
   if (!parsed.success) {
     const msg = parsed.error.issues.map((i) => i.message).join("; ");
     return badRequest(msg, origin);
