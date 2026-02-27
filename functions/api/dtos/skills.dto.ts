@@ -71,6 +71,7 @@ export type SkillMediaRecordDto = {
   skill_id: string;
   bucket: string | null;
   object_path: string;
+  url?: string | null;
   title: string | null;
   description: string | null;
   thumbnail_url: string | null;

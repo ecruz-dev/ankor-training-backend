@@ -24,6 +24,18 @@ function inferSkillMediaType(contentType: string): "video" | "image" | "document
   return "document";
 }
 
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === "string") return msg;
+    const details = (err as { details?: unknown }).details;
+    if (typeof details === "string") return details;
+  }
+  return "Unexpected error";
+}
+
 function parseStorageObjectUrl(
   value: string,
 ): { bucket: string; path: string } | null {
@@ -106,7 +118,7 @@ export async function handleSkillMediaUploadUrl(
 
   const { data, error } = await createSkillMediaUploadUrl(parsed.data);
   if (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     if (message.toLowerCase().includes("not found")) {
       return notFound("Skill not found", origin);
     }
@@ -169,9 +181,12 @@ export async function handleSkillMediaCreate(
     object_path,
   });
   if (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     if (message.toLowerCase().includes("not found")) {
       return notFound("Skill not found", origin);
+    }
+    if (message.toLowerCase().includes("invalid bucket")) {
+      return badRequest(message, origin);
     }
     return serverError(message, origin);
   }
@@ -212,7 +227,7 @@ export async function handleSkillUpdate(
 
   const { data, error } = await updateSkill(skill_id, org_id, parsed.data);
   if (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     if (message.toLowerCase().includes("not found")) {
       return notFound("Skill not found", origin);
     }

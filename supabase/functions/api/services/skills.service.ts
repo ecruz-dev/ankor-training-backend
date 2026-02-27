@@ -104,7 +104,12 @@ function mapSkillMediaRow(
   row: any,
   fallbackBucket: string | null,
 ): SkillMediaRecordDto {
-  const bucket = typeof row?.bucket === "string" ? row.bucket : fallbackBucket;
+  const url = typeof row?.url === "string" ? row.url : "";
+  const parsed = url ? parseStorageObjectUrl(url) : null;
+  const bucket = typeof row?.bucket === "string"
+    ? row.bucket
+    : parsed?.bucket ?? fallbackBucket;
+  const object_path = row?.object_path ?? row?.storage_path ?? parsed?.path ?? "";
   const position = typeof row?.position === "number"
     ? row.position
     : typeof row?.sort_order === "number"
@@ -115,7 +120,8 @@ function mapSkillMediaRow(
     id: row?.id ?? "",
     skill_id: row?.skill_id ?? "",
     bucket: bucket ?? null,
-    object_path: row?.object_path ?? row?.storage_path ?? "",
+    object_path,
+    url: url || null,
     title: row?.title ?? null,
     description: row?.description ?? null,
     thumbnail_url: row?.thumbnail_url ?? null,
@@ -316,103 +322,63 @@ export async function createSkillMedia(
     return { data: null, error: skillError };
   }
 
-  if (!input.object_path || !input.object_path.trim()) {
-    return { data: null, error: new Error("object_path is required") };
-  }
+  const media_type = (input.media_type ?? "video").trim();
+  let position = input.position ?? null;
 
-  const bucket = resolveSkillsBucket(input.bucket);
-  if (!bucket) {
-    return { data: null, error: new Error("Invalid bucket") };
-  }
-
-  const removed = new Set<string>();
-  let pathKey: "object_path" | "storage_path" = "object_path";
-  let positionKey: "position" | "sort_order" = "position";
-
-  const optionalColumns = [
-    "bucket",
-    "title",
-    "description",
-    "thumbnail_url",
-    "position",
-    "sort_order",
-    "media_type",
-    "url",
-  ];
-
-  function buildPayload(): Record<string, unknown> {
-    const payload: Record<string, unknown> = {
-      skill_id: input.skill_id,
-      bucket,
-      [pathKey]: input.object_path.trim(),
-    };
-
-    if (input.title !== undefined) payload.title = input.title ?? null;
-    if (input.description !== undefined) payload.description = input.description ?? null;
-    if (input.thumbnail_url !== undefined) payload.thumbnail_url = input.thumbnail_url ?? null;
-    if (input.position !== undefined) payload[positionKey] = input.position ?? null;
-    if (input.media_type !== undefined) payload.media_type = input.media_type ?? null;
-    if (input.url !== undefined) payload.url = input.url ?? null;
-
-    for (const col of removed) {
-      delete payload[col];
+  let url = typeof input.url === "string" ? input.url.trim() : "";
+  if (!url) {
+    const objectPath = input.object_path?.trim() ?? "";
+    if (!objectPath) {
+      return { data: null, error: new Error("url or object_path is required") };
     }
-
-    return payload;
+    const bucket = resolveSkillsBucket(input.bucket);
+    if (!bucket) {
+      return { data: null, error: new Error("Invalid bucket") };
+    }
+    const publicResult = client.storage.from(bucket).getPublicUrl(objectPath);
+    url = publicResult.data?.publicUrl ?? "";
+    if (!url) {
+      return { data: null, error: new Error("Failed to resolve media URL") };
+    }
   }
 
-  let attemptPayload = buildPayload();
-
-  for (let i = 0; i < 12; i += 1) {
-    const { data, error } = await client
-      .from("skill_video_map")
-      .insert(attemptPayload)
-      .select("*")
+  if (position === null || position === undefined) {
+    const { data: lastRow, error: lastError } = await client
+      .from("skill_media")
+      .select("sort_order")
+      .eq("skill_id", input.skill_id)
+      .order("sort_order", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
-    if (!error) {
-      return { data: data ? mapSkillMediaRow(data, bucket) : null, error: null };
+    if (lastError) {
+      return { data: null, error: lastError };
     }
 
-    const message = error instanceof Error ? error.message : String(error);
-    const match = message.match(/column \"([^\"]+)\"/i);
-    const missing = match?.[1] ?? null;
+    const lastOrder = typeof lastRow?.sort_order === "number"
+      ? lastRow.sort_order
+      : null;
+    position = lastOrder !== null ? lastOrder + 1 : 1;
+  }
 
-    if (!missing) {
-      return { data: null, error };
-    }
+  const { data, error } = await client
+    .from("skill_media")
+    .insert({
+      skill_id: input.skill_id,
+      media_type,
+      url,
+      title: input.title ?? null,
+      thumbnail_url: input.thumbnail_url ?? null,
+      sort_order: position ?? null,
+    })
+    .select("id, skill_id, media_type, url, title, thumbnail_url, sort_order")
+    .single();
 
-    if (missing === "object_path" && pathKey === "object_path") {
-      pathKey = "storage_path";
-      attemptPayload = buildPayload();
-      continue;
-    }
-    if (missing === "storage_path" && pathKey === "storage_path") {
-      pathKey = "object_path";
-      attemptPayload = buildPayload();
-      continue;
-    }
-    if (missing === "position" && positionKey === "position") {
-      positionKey = "sort_order";
-      attemptPayload = buildPayload();
-      continue;
-    }
-    if (missing === "sort_order" && positionKey === "sort_order") {
-      positionKey = "position";
-      attemptPayload = buildPayload();
-      continue;
-    }
-
-    if (optionalColumns.includes(missing)) {
-      removed.add(missing);
-      attemptPayload = buildPayload();
-      continue;
-    }
-
+  if (error) {
     return { data: null, error };
   }
 
-  return { data: null, error: new Error("Failed to create skill media") };
+  return { data: mapSkillMediaRow(data, null), error: null };
 }
 
 export async function getSkillMediaPlaybackUrl(
@@ -431,9 +397,11 @@ export async function getSkillMediaPlaybackUrl(
   }
 
   const { data: row, error } = await client
-    .from("skill_video_map")
-    .select("*")
+    .from("skill_media")
+    .select("id, skill_id, media_type, url, title, thumbnail_url, sort_order")
     .eq("skill_id", skill_id)
+    .eq("media_type", "video")
+    .order("sort_order", { ascending: true })
     .limit(1)
     .maybeSingle();
 
@@ -441,37 +409,26 @@ export async function getSkillMediaPlaybackUrl(
   if (!row) return { data: null, error: new Error("Skill media not found") };
 
   const media = mapSkillMediaRow(row, SKILLS_MEDIA_BUCKET);
-  const rawPath = media.object_path?.trim() ?? "";
   const rawUrl = typeof row?.url === "string" ? row.url : "";
-
-  let bucket = media.bucket ?? SKILLS_MEDIA_BUCKET;
-  let path = rawPath;
-
-  if ((!path || !bucket) && rawUrl) {
-    const parsed = parseStorageObjectUrl(rawUrl);
-    if (parsed) {
-      bucket = parsed.bucket;
-      path = parsed.path;
-    }
-  }
-
-  if (!path) {
-    if (rawUrl) {
-      return {
-        data: {
-          media,
-          play_url: rawUrl,
-          expires_in: null,
-        },
-        error: null,
-      };
-    }
+  if (!rawUrl) {
     return { data: null, error: new Error("Skill media not found") };
   }
 
+  const parsed = parseStorageObjectUrl(rawUrl);
+  if (!parsed) {
+    return {
+      data: {
+        media,
+        play_url: rawUrl,
+        expires_in: null,
+      },
+      error: null,
+    };
+  }
+
   const { data: signed, error: signErr } = await client.storage
-    .from(bucket)
-    .createSignedUrl(path, expires_in);
+    .from(parsed.bucket)
+    .createSignedUrl(parsed.path, expires_in);
 
   if (signErr || !signed?.signedUrl) {
     return { data: null, error: signErr ?? new Error("Failed to create signed URL") };
