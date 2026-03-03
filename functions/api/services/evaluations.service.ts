@@ -1774,7 +1774,7 @@ function formatEvaluationReportDate(value: string | null): string {
 function buildEvaluationLink(evaluationId: string): string {
   const base = (INVITE_REDIRECT_URL ?? "").trim().replace(/\/+$/g, "");
   if (!base) return evaluationId;
-  return `${base}/evaluations/${evaluationId}`;
+  return `${base}/reports/evaluation-reports/${evaluationId}`;
 }
 
 async function getEvaluationReportContext(
