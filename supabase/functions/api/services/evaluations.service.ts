@@ -840,7 +840,7 @@ export async function listEvaluationSubskillRatings(
     return { data: [], count: 0, error: new Error("Supabase client not initialized") };
   }
 
-  const { org_id, evaluation_id, athlete_id, rating_max } = filters;
+  const { org_id, evaluation_id, athlete_id } = filters;
 
   const { data, error } = await client
     .from("evaluations")
@@ -848,33 +848,82 @@ export async function listEvaluationSubskillRatings(
       `
       id,
       created_at,
-      template:scorecard_templates!inner (
-        id
-      ),
+      org_id,
       evaluation_items!inner (
         evaluation_id,
         athlete_id,
         subskill_id,
         rating
+      ),
+      template:scorecard_templates!inner (
+        id,
+        scorecard_categories!inner (
+          id,
+          name,
+          scorecard_subskills!inner (
+            skill_id,
+            name
+          )
+        )
       )
     `,
     )
     .eq("id", evaluation_id)
     .eq("org_id", org_id)
-    .eq("evaluation_items.athlete_id", athlete_id)   
+    .eq("evaluation_items.athlete_id", athlete_id)
     .order("created_at", { ascending: false });
 
   if (error) {
     return { data: [], count: 0, error };
   }
 
-  const rawItems: Array<{
-    evaluation_id: string;
-    skill_id: string;
-    rating: number | null;
-    created_at: string | null;
-  }> = [];
+  const skillInfoById = new Map<string, { skill_descrip: string | null; categoryIds: Set<string> }>();
+  const categoryNameById = new Map<string, string | null>();
 
+  for (const row of data ?? []) {
+    const template = (row as any)?.template;
+    const categories = Array.isArray(template?.scorecard_categories)
+      ? template.scorecard_categories
+      : template?.scorecard_categories
+      ? [template.scorecard_categories]
+      : [];
+
+    for (const category of categories) {
+      const categoryId = category?.id;
+      if (typeof categoryId !== "string" || !categoryId) continue;
+      if (!categoryNameById.has(categoryId)) {
+        categoryNameById.set(categoryId, category?.name ?? null);
+      }
+
+      const subskills = Array.isArray(category?.scorecard_subskills)
+        ? category.scorecard_subskills
+        : category?.scorecard_subskills
+        ? [category.scorecard_subskills]
+        : [];
+
+      for (const subskill of subskills) {
+        const skillId = subskill?.skill_id;
+        if (typeof skillId !== "string" || !skillId) continue;
+        let skillInfo = skillInfoById.get(skillId);
+        if (!skillInfo) {
+          skillInfo = {
+            skill_descrip: subskill?.name ?? null,
+            categoryIds: new Set<string>(),
+          };
+          skillInfoById.set(skillId, skillInfo);
+        } else if (!skillInfo.skill_descrip && subskill?.name) {
+          skillInfo.skill_descrip = subskill.name ?? null;
+        }
+        skillInfo.categoryIds.add(categoryId);
+      }
+    }
+  }
+
+  if (skillInfoById.size === 0 || categoryNameById.size === 0) {
+    return { data: [], count: 0, error: null };
+  }
+
+  const results: Array<EvaluationSubskillRatingRow & { created_at: string | null }> = [];
   for (const row of data ?? []) {
     const created_at = row?.created_at ?? null;
     const evaluationId = row?.id ?? evaluation_id;
@@ -887,102 +936,21 @@ export async function listEvaluationSubskillRatings(
     for (const item of items) {
       const skillId = item?.subskill_id;
       if (!skillId) continue;
-      rawItems.push({
-        evaluation_id: item?.evaluation_id ?? evaluationId,
-        skill_id: skillId,
-        rating: item?.rating ?? null,
-        created_at,
-      });
-    }
-  }
+      const skillInfo = skillInfoById.get(skillId);
+      if (!skillInfo) continue;
 
-  if (rawItems.length === 0) {
-    return { data: [], count: 0, error: null };
-  }
-
-  const skillIds = Array.from(
-    new Set(rawItems.map((item) => item.skill_id).filter(Boolean)),
-  );
-  if (skillIds.length === 0) {
-    return { data: [], count: 0, error: null };
-  }
-
-  const { data: subskills, error: subskillError } = await client
-    .from("scorecard_subskills")
-    .select("skill_id, category_id")
-    .in("skill_id", skillIds);
-
-  if (subskillError) {
-    return { data: [], count: 0, error: subskillError };
-  }
-
-  const categoryIdsBySkill = new Map<string, Set<string>>();
-  const categoryIds = new Set<string>();
-  for (const row of subskills ?? []) {
-    const skillId = row?.skill_id;
-    const categoryId = row?.category_id;
-    if (typeof skillId !== "string" || !skillId) continue;
-    if (typeof categoryId !== "string" || !categoryId) continue;
-    if (!categoryIdsBySkill.has(skillId)) {
-      categoryIdsBySkill.set(skillId, new Set<string>());
-    }
-    categoryIdsBySkill.get(skillId)!.add(categoryId);
-    categoryIds.add(categoryId);
-  }
-
-  if (categoryIdsBySkill.size === 0 || categoryIds.size === 0) {
-    return { data: [], count: 0, error: null };
-  }
-
-  const { data: skills, error: skillsError } = await client
-    .from("skills")
-    .select("id, title")
-    .in("id", Array.from(categoryIdsBySkill.keys()));
-
-  if (skillsError) {
-    return { data: [], count: 0, error: skillsError };
-  }
-
-  const skillTitleById = new Map<string, string | null>();
-  for (const skill of skills ?? []) {
-    const id = skill?.id;
-    if (typeof id !== "string" || !id) continue;
-    skillTitleById.set(id, skill?.title ?? null);
-  }
-
-  const { data: categories, error: categoriesError } = await client
-    .from("scorecard_categories")
-    .select("id, name")
-    .in("id", Array.from(categoryIds));
-
-  if (categoriesError) {
-    return { data: [], count: 0, error: categoriesError };
-  }
-
-  const categoryNameById = new Map<string, string | null>();
-  for (const category of categories ?? []) {
-    const id = category?.id;
-    if (typeof id !== "string" || !id) continue;
-    categoryNameById.set(id, category?.name ?? null);
-  }
-
-  const results: Array<EvaluationSubskillRatingRow & { created_at: string | null }> = [];
-  for (const item of rawItems) {
-    const categoriesForSkill = categoryIdsBySkill.get(item.skill_id);
-    const skillTitle = skillTitleById.get(item.skill_id);
-    if (!categoriesForSkill || !skillTitleById.has(item.skill_id)) continue;
-
-    for (const categoryId of categoriesForSkill) {
-      if (!categoryNameById.has(categoryId)) continue;
-      results.push({
-        evaluation_id: item.evaluation_id,
-        skill_id: item.skill_id,
-        skill_descrip: skillTitle ?? null,
-        category_id: categoryId,
-        category_descrip: categoryNameById.get(categoryId) ?? null,
-        rating: item.rating ?? null,
-        created_at: item.created_at ?? null,
-      });
+      for (const categoryId of skillInfo.categoryIds) {
+        if (!categoryNameById.has(categoryId)) continue;
+        results.push({
+          evaluation_id: item?.evaluation_id ?? evaluationId,
+          skill_id: skillId,
+          skill_descrip: skillInfo.skill_descrip ?? null,
+          category_id: categoryId,
+          category_descrip: categoryNameById.get(categoryId) ?? null,
+          rating: item?.rating ?? null,
+          created_at,
+        });
+      }
     }
   }
 
