@@ -15,7 +15,7 @@ export function createCoachesRouter(): Router {
     "POST",
     "",
     createCoachController,
-    [orgRoleGuardFromBody("org_id", ["coach"])],
+    [orgRoleGuardFromBody("org_id", ["admin"])],
   );
   router.add(
     "GET",
@@ -39,7 +39,7 @@ export function createCoachesRouter(): Router {
     "PATCH",
     ":id",
     updateCoachController,
-    [orgRoleGuardFromQuery("org_id", ["coach"])],
+    [orgRoleGuardFromQuery("org_id", ["admin"])],
   );
 
   return router;
