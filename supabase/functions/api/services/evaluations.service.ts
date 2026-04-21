@@ -674,8 +674,7 @@ export async function listEvaluationImprovementSkills(
   const joined = rawItems
     .map((item) => ({
       ...item,
-      resolved_skill_id: skillIdByInputId.get(item.subskill_id) ??
-        item.subskill_id,
+      resolved_skill_id: skillIdByInputId.get(item.subskill_id) ?? item.subskill_id,
     }))
     .filter((item) => skillNameById.has(item.resolved_skill_id))
     .map((item) => ({
@@ -712,180 +711,38 @@ export async function listEvaluationSkillVideos(
   const { org_id, evaluation_id, athlete_id, rating_max } = filters;
 
   const { data, error } = await client
-    .from("evaluations")
-    .select(
-      `
-      id,
-      created_at,
-      template:scorecard_templates!inner (
-        id
-      ),
-      evaluation_items!inner (
-        evaluation_id,
-        athlete_id,
-        subskill_id,
-        rating
-      )
-    `,
-    )
-    .eq("id", evaluation_id)
-    .eq("org_id", org_id)
-    .eq("evaluation_items.athlete_id", athlete_id)
-    .lt("evaluation_items.rating", rating_max)
-    .order("created_at", { ascending: false });
+    .rpc("list_evaluation_skill_videos", {
+      p_evaluation_id: evaluation_id,
+      p_org_id: org_id,
+      p_athlete_id: athlete_id,
+      p_rating_max: rating_max,
+    });
 
   if (error) {
     return { data: [], count: 0, error };
   }
 
-  const rawItems: Array<{
-    evaluation_id: string;
-    skill_id: string;
-    created_at: string | null;
-    rating: number | null;
-  }> = [];
-
+  const results: Array<EvaluationSkillVideoRow & { created_at: string | null }> = [];
   for (const row of data ?? []) {
-    const created_at = row?.created_at ?? null;
-    const evaluationId = row?.id ?? evaluation_id;
-    const items = Array.isArray(row?.evaluation_items)
-      ? row.evaluation_items
-      : row?.evaluation_items
-      ? [row.evaluation_items]
-      : [];
-
-    for (const item of items) {
-      const skillId = item?.subskill_id;
-      if (!skillId) continue;
-      rawItems.push({
-        evaluation_id: item?.evaluation_id ?? evaluationId,
-        skill_id: skillId,
-        created_at,
-        rating: item?.rating ?? null,
-      });
-    }
-  }
-
-  if (rawItems.length === 0) {
-    return { data: [], count: 0, error: null };
-  }
-
-  const skillIds = Array.from(
-    new Set(rawItems.map((item) => item.skill_id).filter(Boolean)),
-  );
-  if (skillIds.length === 0) {
-    return { data: [], count: 0, error: null };
-  }
-
-  const { data: subskills, error: subskillError } = await client
-    .from("scorecard_subskills")
-    .select("id, skill_id")
-    .in("id", skillIds);
-
-  if (subskillError) {
-    return { data: [], count: 0, error: subskillError };
-  }
-
-  const skillIdByInputId = new Map<string, string>();
-  for (const row of subskills ?? []) {
-    const id = row?.id;
-    const skillId = row?.skill_id;
-    if (typeof id !== "string" || !id) continue;
-    if (typeof skillId !== "string" || !skillId) continue;
-    skillIdByInputId.set(id, skillId);
-  }
-
-  for (const skillId of skillIds) {
-    if (!skillIdByInputId.has(skillId)) {
-      skillIdByInputId.set(skillId, skillId);
-    }
-  }
-
-  const resolvedSkillIds = Array.from(new Set(skillIdByInputId.values()));
-  if (resolvedSkillIds.length === 0) {
-    return { data: [], count: 0, error: null };
-  }
-
-  const { data: skills, error: skillsError } = await client
-    .from("skills")
-    .select("id, title")
-    .in("id", resolvedSkillIds);
-
-  if (skillsError) {
-    return { data: [], count: 0, error: skillsError };
-  }
-
-  const titleById = new Map<string, string | null>();
-  for (const skill of skills ?? []) {
-    const id = skill?.id;
-    if (typeof id !== "string" || !id) continue;
-    titleById.set(id, skill?.title ?? null);
-  }
-
-  if (titleById.size === 0) {
-    return { data: [], count: 0, error: null };
-  }
-
-  const { data: videoRows, error: videoError } = await client
-    .from("skill_media")
-    .select("skill_id, url, sort_order")
-    .eq("media_type", "video")
-    .in("skill_id", Array.from(titleById.keys()))
-    .order("sort_order", { ascending: true });
-
-  if (videoError) {
-    return { data: [], count: 0, error: videoError };
-  }
-
-  const videosBySkill = new Map<
-    string,
-    Array<{ object_path: string | null; url: string | null }>
-  >();
-  for (const row of videoRows ?? []) {
     const skillId = row?.skill_id;
     if (typeof skillId !== "string" || !skillId) continue;
-    if (!videosBySkill.has(skillId)) {
-      videosBySkill.set(skillId, []);
-    }
     const url = typeof row?.url === "string" && row.url.trim()
       ? row.url.trim()
       : null;
-    videosBySkill.get(skillId)!.push({
+    const rating = row?.rating === null || row?.rating === undefined
+      ? null
+      : Number(row.rating);
+
+    results.push({
+      evaluation_id: row?.evaluation_id ?? evaluation_id,
+      skill_id: skillId,
+      title: row?.title ?? null,
       object_path: storageObjectPathFromUrl(url),
       url,
+      rating: Number.isFinite(rating) ? rating : null,
+      created_at: row?.created_at ?? null,
     });
   }
-
-  const filtered = rawItems
-    .map((item) => ({
-      ...item,
-      resolved_skill_id: skillIdByInputId.get(item.skill_id) ?? item.skill_id,
-    }))
-    .filter((item) => titleById.has(item.resolved_skill_id));
-
-  const results: Array<EvaluationSkillVideoRow & { created_at: string | null }> = [];
-  for (const item of filtered) {
-    const videos = videosBySkill.get(item.resolved_skill_id);
-    if (!videos || videos.length === 0) continue;
-    const title = titleById.get(item.resolved_skill_id) ?? null;
-    for (const video of videos) {
-      results.push({
-        evaluation_id: item.evaluation_id,
-        skill_id: item.resolved_skill_id,
-        title,
-        object_path: video.object_path,
-        url: video.url,
-        rating: item.rating ?? null,
-        created_at: item.created_at ?? null,
-      });
-    }
-  }
-
-  results.sort((a, b) => {
-    const aTime = a.created_at ? Date.parse(a.created_at) : 0;
-    const bTime = b.created_at ? Date.parse(b.created_at) : 0;
-    return bTime - aTime;
-  });
 
   return {
     data: results.map(({ created_at, ...rest }) => rest),
