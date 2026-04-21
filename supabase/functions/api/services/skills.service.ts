@@ -1,5 +1,8 @@
 import { sbAdmin } from "./supabase.ts";
 import {
+  type SkillMediaBatchInput,
+  type SkillMediaBatchItemResult,
+  type SkillMediaBatchResult,
   type CreateSkillInput,
   type SkillMediaCreateInput,
   type SkillMediaPlaybackDto,
@@ -43,15 +46,22 @@ function inferExtension(fileName: string, contentType: string): string {
   return mapped ?? ".bin";
 }
 
+function normalizeFileHash(value?: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  return /^[a-f0-9]{64}$/.test(normalized) ? normalized : null;
+}
+
 function buildSkillMediaPath(input: {
   org_id: string;
   skill_id: string;
   file_name: string;
   content_type: string;
+  file_hash?: string | null;
 }): string {
   const safeName = sanitizeFileName(input.file_name);
   const extension = inferExtension(safeName, input.content_type);
-  const fileId = crypto.randomUUID();
+  const fileId = normalizeFileHash(input.file_hash) ?? crypto.randomUUID();
   return `orgs/${input.org_id}/skills/${input.skill_id}/${fileId}${extension}`;
 }
 
@@ -155,15 +165,75 @@ function parseStorageObjectUrl(
   return { bucket, path };
 }
 
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+    const error = (err as { error?: unknown }).error;
+    if (typeof error === "string") return error;
+  }
+  return "Unexpected error";
+}
+
+function resolveBatchVideoContentType(file: File): string | null {
+  const type = file.type.trim().toLowerCase();
+  if (type === "video/mp4") return type;
+
+  const name = (file.name ?? "").trim().toLowerCase();
+  if (name.endsWith(".mp4")) return "video/mp4";
+
+  return null;
+}
+
+async function getExistingSkillMediaByUrl(
+  skill_id: string,
+  url: string,
+): Promise<{ data: SkillMediaRecordDto | null; error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { data: null, error: new Error("Supabase client not initialized") };
+  }
+
+  const normalizedUrl = url.trim();
+  if (!normalizedUrl) {
+    return { data: null, error: null };
+  }
+
+  const { data, error } = await client
+    .from("skill_media")
+    .select("id, skill_id, media_type, url, title, thumbnail_url, sort_order")
+    .eq("skill_id", skill_id)
+    .eq("url", normalizedUrl)
+    .order("sort_order", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return { data: null, error };
+  if (!data) return { data: null, error: null };
+  return { data: mapSkillMediaRow(data, null), error: null };
+}
+
+async function removeSkillMediaObject(bucket: string, objectPath: string): Promise<void> {
+  const client = sbAdmin;
+  if (!client) return;
+
+  await client.storage.from(bucket).remove([objectPath]);
+}
+
+type SkillMediaBatchUploadItem = SkillMediaBatchInput["items"][number] & {
+  file: File;
+};
+
 export async function listSkills(params: {
   org_id: string;
-  sport_id?: string;
   category?: string;
   q?: string;
   limit?: number;
   offset?: number;
 }) {
-  const { org_id, sport_id, category, q, limit = 50, offset = 0 } = params;
+  const { org_id, category, q, limit = 50, offset = 0 } = params;
 
   let query = sbAdmin!
     .from("skills")
@@ -175,7 +245,6 @@ export async function listSkills(params: {
     .order("title", { ascending: true })
     .range(offset, offset + (limit - 1));
 
-  if (sport_id) query = query.eq("sport_id", sport_id);
   if (category?.trim()) query = query.ilike("category", category.trim());
   if (q?.trim()) query = query.or(`title.ilike.%${q}%,category.ilike.%${q}%`);
 
@@ -342,6 +411,17 @@ export async function createSkillMedia(
     }
   }
 
+  const { data: existing, error: existingError } = await getExistingSkillMediaByUrl(
+    input.skill_id,
+    url,
+  );
+  if (existingError) {
+    return { data: null, error: existingError };
+  }
+  if (existing) {
+    return { data: existing, error: null };
+  }
+
   if (position === null || position === undefined) {
     const { data: lastRow, error: lastError } = await client
       .from("skill_media")
@@ -379,6 +459,137 @@ export async function createSkillMedia(
   }
 
   return { data: mapSkillMediaRow(data, null), error: null };
+}
+
+export async function uploadSkillMediaBatch(
+  input: {
+    org_id: string;
+    items: SkillMediaBatchUploadItem[];
+  },
+): Promise<{ data: SkillMediaBatchResult | null; error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { data: null, error: new Error("Supabase client not initialized") };
+  }
+
+  const results: SkillMediaBatchItemResult[] = [];
+
+  for (const item of input.items) {
+    const fileName = sanitizeFileName(item.file.name || `${item.file_field}.mp4`);
+    const contentType = resolveBatchVideoContentType(item.file);
+
+    if (!contentType) {
+      results.push({
+        file_field: item.file_field,
+        file_name: fileName,
+        skill_id: item.skill_id,
+        status: "failed",
+        reason: "Only .mp4 videos are supported",
+        upload: null,
+        media: null,
+      });
+      continue;
+    }
+
+    const { data: upload, error: uploadUrlError } = await createSkillMediaUploadUrl({
+      org_id: input.org_id,
+      skill_id: item.skill_id,
+      file_name: fileName,
+      content_type: contentType,
+      title: item.title,
+      description: item.description,
+      thumbnail_url: item.thumbnail_url,
+      position: item.position,
+    });
+
+    if (uploadUrlError || !upload) {
+      results.push({
+        file_field: item.file_field,
+        file_name: fileName,
+        skill_id: item.skill_id,
+        status: "failed",
+        reason: getErrorMessage(uploadUrlError),
+        upload: null,
+        media: null,
+      });
+      continue;
+    }
+
+    let uploadedToStorage = false;
+    const { error: storageError } = await client.storage
+      .from(upload.bucket)
+      .uploadToSignedUrl(upload.object_path, upload.token, item.file, {
+        contentType,
+      });
+
+    if (storageError) {
+      results.push({
+        file_field: item.file_field,
+        file_name: fileName,
+        skill_id: item.skill_id,
+        status: "failed",
+        reason: getErrorMessage(storageError),
+        upload,
+        media: null,
+      });
+      continue;
+    } else {
+      uploadedToStorage = true;
+    }
+
+    const { data: media, error: mediaError } = await createSkillMedia({
+      org_id: input.org_id,
+      skill_id: item.skill_id,
+      bucket: upload.bucket,
+      object_path: upload.object_path,
+      media_type: "video",
+      title: item.title,
+      description: item.description,
+      thumbnail_url: item.thumbnail_url,
+      position: item.position,
+    });
+
+    if (mediaError || !media) {
+      if (uploadedToStorage) {
+        await removeSkillMediaObject(upload.bucket, upload.object_path);
+      }
+      results.push({
+        file_field: item.file_field,
+        file_name: fileName,
+        skill_id: item.skill_id,
+        status: "failed",
+        reason: getErrorMessage(mediaError),
+        upload,
+        media: null,
+      });
+      continue;
+    }
+
+    results.push({
+      file_field: item.file_field,
+      file_name: fileName,
+      skill_id: item.skill_id,
+      status: "uploaded",
+      reason: null,
+      upload,
+      media,
+    });
+  }
+
+  const uploaded = results.filter((item) => item.status === "uploaded").length;
+  const skipped = results.filter((item) => item.status === "skipped").length;
+  const failed = results.filter((item) => item.status === "failed").length;
+
+  return {
+    data: {
+      total: results.length,
+      uploaded,
+      skipped,
+      failed,
+      items: results,
+    },
+    error: null,
+  };
 }
 
 export async function getSkillMediaPlaybackUrl(

@@ -77,6 +77,7 @@ export type EvaluationSkillVideoRow = {
   skill_id: string;
   title: string | null;
   object_path: string | null;
+  url: string | null;
   rating: number | null;
 };
 
@@ -138,6 +139,31 @@ export type EvaluationWorkoutSummary = {
   total_reps: number;
   total_plans_shares: number;
 };
+
+function storageObjectPathFromUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return trimmed;
+  }
+
+  const prefix = "/storage/v1/object/";
+  if (!url.pathname.startsWith(prefix)) return null;
+
+  const parts = url.pathname
+    .slice(prefix.length)
+    .split("/")
+    .filter(Boolean);
+  const offset = parts[0] === "public" || parts[0] === "sign" ? 1 : 0;
+  if (parts.length - offset < 2) return null;
+
+  return parts.slice(offset + 1).join("/");
+}
 
 export type EvaluationWorkoutDrillsFilters = {
   org_id: string;
@@ -598,32 +624,41 @@ export async function listEvaluationImprovementSkills(
     return { data: [], count: 0, error: null };
   }
 
-  // Manual join: evaluation_items.subskill_id -> scorecard_subskills.skill_id.
+  // evaluation_items.subskill_id may contain either a scorecard_subskills.id
+  // or an older direct skills.id value.
   const { data: subskills, error: subskillError } = await client
     .from("scorecard_subskills")
-    .select("skill_id")
-    .in("skill_id", skillIds);
+    .select("id, skill_id")
+    .in("id", skillIds);
 
   if (subskillError) {
     return { data: [], count: 0, error: subskillError };
   }
 
-  const subskillSkillIds = new Set(
-    (subskills ?? [])
-      .map((row: any) => row?.skill_id)
-      .filter((value: unknown): value is string =>
-        typeof value === "string" && value.length > 0
-      ),
-  );
+  const skillIdByInputId = new Map<string, string>();
+  for (const row of subskills ?? []) {
+    const id = row?.id;
+    const skillId = row?.skill_id;
+    if (typeof id !== "string" || !id) continue;
+    if (typeof skillId !== "string" || !skillId) continue;
+    skillIdByInputId.set(id, skillId);
+  }
 
-  if (subskillSkillIds.size === 0) {
+  for (const skillId of skillIds) {
+    if (!skillIdByInputId.has(skillId)) {
+      skillIdByInputId.set(skillId, skillId);
+    }
+  }
+
+  const resolvedSkillIds = Array.from(new Set(skillIdByInputId.values()));
+  if (resolvedSkillIds.length === 0) {
     return { data: [], count: 0, error: null };
   }
 
   const { data: skills, error: skillsError } = await client
     .from("skills")
     .select("id, title")
-    .in("id", Array.from(subskillSkillIds));
+    .in("id", resolvedSkillIds);
 
   if (skillsError) {
     return { data: [], count: 0, error: skillsError };
@@ -637,12 +672,16 @@ export async function listEvaluationImprovementSkills(
   }
 
   const joined = rawItems
-    .filter((item) => subskillSkillIds.has(item.subskill_id))
-    .filter((item) => skillNameById.has(item.subskill_id))
+    .map((item) => ({
+      ...item,
+      resolved_skill_id: skillIdByInputId.get(item.subskill_id) ??
+        item.subskill_id,
+    }))
+    .filter((item) => skillNameById.has(item.resolved_skill_id))
     .map((item) => ({
       evaluation_id: item.evaluation_id,
-      skill_id: item.subskill_id,
-      skill_name: skillNameById.get(item.subskill_id) ?? null,
+      skill_id: item.resolved_skill_id,
+      skill_name: skillNameById.get(item.resolved_skill_id) ?? null,
       rating: item.rating ?? null,
       created_at: item.created_at ?? null,
     }));
@@ -740,29 +779,37 @@ export async function listEvaluationSkillVideos(
 
   const { data: subskills, error: subskillError } = await client
     .from("scorecard_subskills")
-    .select("skill_id")
-    .in("skill_id", skillIds);
+    .select("id, skill_id")
+    .in("id", skillIds);
 
   if (subskillError) {
     return { data: [], count: 0, error: subskillError };
   }
 
-  const subskillSkillIds = new Set(
-    (subskills ?? [])
-      .map((row: any) => row?.skill_id)
-      .filter((value: unknown): value is string =>
-        typeof value === "string" && value.length > 0
-      ),
-  );
+  const skillIdByInputId = new Map<string, string>();
+  for (const row of subskills ?? []) {
+    const id = row?.id;
+    const skillId = row?.skill_id;
+    if (typeof id !== "string" || !id) continue;
+    if (typeof skillId !== "string" || !skillId) continue;
+    skillIdByInputId.set(id, skillId);
+  }
 
-  if (subskillSkillIds.size === 0) {
+  for (const skillId of skillIds) {
+    if (!skillIdByInputId.has(skillId)) {
+      skillIdByInputId.set(skillId, skillId);
+    }
+  }
+
+  const resolvedSkillIds = Array.from(new Set(skillIdByInputId.values()));
+  if (resolvedSkillIds.length === 0) {
     return { data: [], count: 0, error: null };
   }
 
   const { data: skills, error: skillsError } = await client
     .from("skills")
     .select("id, title")
-    .in("id", Array.from(subskillSkillIds));
+    .in("id", resolvedSkillIds);
 
   if (skillsError) {
     return { data: [], count: 0, error: skillsError };
@@ -780,39 +827,54 @@ export async function listEvaluationSkillVideos(
   }
 
   const { data: videoRows, error: videoError } = await client
-    .from("skill_video_map")
-    .select("skill_id, object_path")
-    .in("skill_id", Array.from(titleById.keys()));
+    .from("skill_media")
+    .select("skill_id, url, sort_order")
+    .eq("media_type", "video")
+    .in("skill_id", Array.from(titleById.keys()))
+    .order("sort_order", { ascending: true });
 
   if (videoError) {
     return { data: [], count: 0, error: videoError };
   }
 
-  const videosBySkill = new Map<string, Array<string | null>>();
+  const videosBySkill = new Map<
+    string,
+    Array<{ object_path: string | null; url: string | null }>
+  >();
   for (const row of videoRows ?? []) {
     const skillId = row?.skill_id;
     if (typeof skillId !== "string" || !skillId) continue;
     if (!videosBySkill.has(skillId)) {
       videosBySkill.set(skillId, []);
     }
-    videosBySkill.get(skillId)!.push(row?.object_path ?? null);
+    const url = typeof row?.url === "string" && row.url.trim()
+      ? row.url.trim()
+      : null;
+    videosBySkill.get(skillId)!.push({
+      object_path: storageObjectPathFromUrl(url),
+      url,
+    });
   }
 
-  const filtered = rawItems.filter(
-    (item) => subskillSkillIds.has(item.skill_id) && titleById.has(item.skill_id),
-  );
+  const filtered = rawItems
+    .map((item) => ({
+      ...item,
+      resolved_skill_id: skillIdByInputId.get(item.skill_id) ?? item.skill_id,
+    }))
+    .filter((item) => titleById.has(item.resolved_skill_id));
 
   const results: Array<EvaluationSkillVideoRow & { created_at: string | null }> = [];
   for (const item of filtered) {
-    const videos = videosBySkill.get(item.skill_id);
+    const videos = videosBySkill.get(item.resolved_skill_id);
     if (!videos || videos.length === 0) continue;
-    const title = titleById.get(item.skill_id) ?? null;
-    for (const object_path of videos) {
+    const title = titleById.get(item.resolved_skill_id) ?? null;
+    for (const video of videos) {
       results.push({
         evaluation_id: item.evaluation_id,
-        skill_id: item.skill_id,
+        skill_id: item.resolved_skill_id,
         title,
-        object_path,
+        object_path: video.object_path,
+        url: video.url,
         rating: item.rating ?? null,
         created_at: item.created_at ?? null,
       });

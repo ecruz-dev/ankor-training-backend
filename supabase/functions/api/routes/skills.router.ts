@@ -3,6 +3,7 @@ import { Router } from "./router.ts";
 import {
   handleSkillById,
   handleSkillCreate,
+  handleSkillMediaBatchUpload,
   handleSkillMediaCreate,
   handleSkillMediaUploadUrl,
   handleSkillMediaPlayback,
@@ -19,6 +20,11 @@ export function createSkillsRouter(): Router {
     "",
     handleSkillCreate,
     [orgRoleGuardFromBody("org_id", ["coach"])],
+  );
+  router.add(
+    "POST",
+    "media/batch-upload",
+    handleSkillMediaBatchUpload,
   );
   router.add(
     "POST",
