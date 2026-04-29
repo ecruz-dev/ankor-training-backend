@@ -1,3 +1,14 @@
+drop function if exists public.signup_register_org_tx(
+  uuid,
+  text,
+  text,
+  text,
+  text,
+  text,
+  text,
+  text[]
+);
+
 create or replace function public.signup_register_org_tx(
   p_user_id uuid,
   p_first_name text,
@@ -6,7 +17,8 @@ create or replace function public.signup_register_org_tx(
   p_phone text,
   p_org_name text,
   p_program_gender text,
-  p_team_names text[]
+  p_team_names text[],
+  p_sport_id uuid default null
 ) returns table (
   org_id uuid,
   profile_id uuid,
@@ -41,8 +53,8 @@ begin
     v_i := v_i + 1;
   end loop;
 
-  insert into public.organizations(name, program_gender, slug)
-  values (trim(p_org_name), p_program_gender, v_slug)
+  insert into public.organizations(name, program_gender, slug, sport_id)
+  values (trim(p_org_name), p_program_gender, v_slug, p_sport_id)
   returning id into v_org_id;
 
   v_full_name := nullif(trim(concat_ws(' ', p_first_name, p_last_name)), '');

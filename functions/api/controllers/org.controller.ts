@@ -1,9 +1,10 @@
 ﻿import { badRequest, json, serverError } from "../utils/responses.ts";
 import { sbAdmin } from "../services/supabase.ts";
+import { RE_UUID } from "../utils/uuid.ts";
 
 type Body = {
   admin: { firstName: string; lastName: string; email: string; phone?: string | null; password: string };
-  organization: { name: string; programGender: "girls" | "boys" | "coed" };
+  organization: { name: string; programGender: "girls" | "boys" | "coed"; sport_id?: string | null };
   teams?: Array<{ name: string }>;
 };
 
@@ -21,6 +22,10 @@ export async function handleOrgSignup(req: Request, origin: string | null) {
   }
   if (!org?.name || !["girls", "boys", "coed"].includes(org.programGender)) {
     return badRequest("Invalid organization data", origin);
+  }
+  const sportId = org.sport_id?.trim() || null;
+  if (sportId && !RE_UUID.test(sportId)) {
+    return badRequest("sport_id must be a UUID if provided", origin);
   }
 
   const { data: created, error: createErr } = await sbAdmin!.auth.admin.createUser({
@@ -49,6 +54,7 @@ export async function handleOrgSignup(req: Request, origin: string | null) {
     p_org_name: org.name,
     p_program_gender: org.programGender,
     p_team_names: teamNames,
+    p_sport_id: sportId,
   });
 
   if (rpcErr || !rpcData?.length) {
