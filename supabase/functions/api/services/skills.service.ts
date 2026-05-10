@@ -235,13 +235,28 @@ export async function listSkills(params: {
 }) {
   const { org_id, category, q, limit = 50, offset = 0 } = params;
 
+  const { data: orgRow, error: orgError } = await sbAdmin!
+    .from("organizations")
+    .select("sport_id")
+    .eq("id", org_id)
+    .maybeSingle();
+
+  if (orgError) {
+    return { data: [], count: 0, error: orgError };
+  }
+
+  const sportId = orgRow?.sport_id ?? null;
+  if (!sportId) {
+    return { data: [], count: 0, error: null };
+  }
+
   let query = sbAdmin!
     .from("skills")
     .select(
       "id, org_id, sport_id, category, title, description, level, visibility, status, created_at, updated_at",
       { count: "exact" }
     )
-    .eq("org_id", org_id)
+    .eq("sport_id", sportId)
     .order("title", { ascending: true })
     .range(offset, offset + (limit - 1));
 
