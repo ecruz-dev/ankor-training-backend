@@ -496,6 +496,21 @@ export async function listDrills(
 
   const rangeTo = offset + (limit - 1);
 
+  const { data: orgRow, error: orgError } = await client
+    .from("organizations")
+    .select("sport_id")
+    .eq("id", org_id)
+    .maybeSingle();
+
+  if (orgError) {
+    return { data: [], count: 0, error: orgError };
+  }
+
+  const sportId = orgRow?.sport_id ?? null;
+  if (!sportId) {
+    return { data: [], count: 0, error: null };
+  }
+
   // IMPORTANT:
   // - If filtering by tags, embed drill_tag_map with !inner so drills are filtered.
   // - If not filtering by tags, don't use !inner or you’ll exclude drills with no tags.
@@ -529,6 +544,7 @@ export async function listDrills(
       { count: "exact" },
     )
     .eq("org_id", org_id)
+    .eq("sport_id", sportId)
     .range(offset, rangeTo)
     .order("created_at", { ascending: false });
 
