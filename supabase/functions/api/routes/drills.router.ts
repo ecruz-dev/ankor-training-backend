@@ -1,6 +1,7 @@
 import { Router } from "./router.ts";
 import {
   createDrillController,
+  createDrillMediaBatchUploadController,
   createDrillMediaController,
   createDrillMediaUploadUrlController,
   getDrillMediaPlaybackController,
@@ -23,6 +24,11 @@ export function createDrillsRouter(): Router {
     "",
     createDrillController,
     [orgRoleGuardFromBody("org_id", ["coach"])],
+  );
+  router.add(
+    "POST",
+    "media/batch-upload",
+    createDrillMediaBatchUploadController,
   );
   router.add(
     "POST",

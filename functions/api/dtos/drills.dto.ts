@@ -19,7 +19,8 @@ export const DrillMediaSchema = z.object({
   thumbnail_url: z.string()
     .url("thumbnail_url must be a valid URL")
     .optional()
-    .nullable()
+    .nullable(),
+  position: z.number({ coerce: true }).int().min(0).optional().nullable(),
 });
 
 export const DrillMediaUploadSchema = z.object({
@@ -101,6 +102,44 @@ export const GetDrillMediaByIdSchema = z.object({
 
 export type DrillListFilterInput = z.infer<typeof DrillListFilterSchema>;
 
+export const DrillMediaBatchItemSchema = z.object({
+  file_field: z.string().trim().min(1, "file_field is required").max(100),
+  drill_id: uuid(),
+  title: z.string().trim().max(200).optional().nullable(),
+  description: z.string().trim().max(4000).optional().nullable(),
+  thumbnail_url: z.string()
+    .url("thumbnail_url must be a valid URL")
+    .optional()
+    .nullable(),
+  position: z.number({ coerce: true }).int().min(0).optional().nullable(),
+});
+
+export const DrillMediaBatchSchema = z.object({
+  org_id: uuid(),
+  items: z.array(DrillMediaBatchItemSchema)
+    .min(1, "items must contain at least one entry")
+    .max(100),
+}).superRefine((data, ctx) => {
+  const seenFields = new Set<string>();
+
+  for (const [index, item] of data.items.entries()) {
+    const field = item.file_field.trim();
+    if (seenFields.has(field)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["items", index, "file_field"],
+        message: `Duplicate file_field '${field}'`,
+      });
+      continue;
+    }
+
+    seenFields.add(field);
+  }
+});
+
+export type DrillMediaBatchItemInput = z.infer<typeof DrillMediaBatchItemSchema>;
+export type DrillMediaBatchInput = z.infer<typeof DrillMediaBatchSchema>;
+
 export interface DrillDto {
   id: string;
   org_id: string | null;
@@ -154,6 +193,24 @@ export type DrillMediaPlaybackDto = {
   media: DrillMediaRecordDto;
   play_url: string;
   expires_in: number | null;
+};
+
+export type DrillMediaBatchItemResult = {
+  file_field: string;
+  file_name: string;
+  drill_id: string;
+  status: "uploaded" | "skipped" | "failed";
+  reason: string | null;
+  upload: DrillMediaUploadResult | null;
+  media: DrillMediaRecordDto | null;
+};
+
+export type DrillMediaBatchResult = {
+  total: number;
+  uploaded: number;
+  skipped: number;
+  failed: number;
+  items: DrillMediaBatchItemResult[];
 };
 
 export type RpcCreateDrillPayload = {

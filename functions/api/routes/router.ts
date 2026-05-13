@@ -22,7 +22,7 @@ export type Middleware = (
   origin: string | null,
   params: RouteParams,
   ctx: RequestContext,
-) => Response | Promise<Response> | null;
+) => Response | Promise<Response | null> | null;
 
 interface RouteDef {
   method: string;

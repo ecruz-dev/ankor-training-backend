@@ -4,6 +4,9 @@ import {
   type CreateDrillMediaInput,
   type DrillDto,
   type DrillListFilterInput,
+  type DrillMediaBatchInput,
+  type DrillMediaBatchItemResult,
+  type DrillMediaBatchResult,
   type DrillMediaDto,
   type DrillMediaPlaybackDto,
   type DrillMediaRecordDto,
@@ -79,6 +82,39 @@ function parseStorageObjectUrl(
   const path = parts.slice(offset + 1).join("/");
   return { bucket, path };
 }
+
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+    const error = (err as { error?: unknown }).error;
+    if (typeof error === "string") return error;
+  }
+  return "Unexpected error";
+}
+
+function resolveBatchVideoContentType(file: File): string | null {
+  const type = file.type.trim().toLowerCase();
+  if (type === "video/mp4") return type;
+
+  const name = (file.name ?? "").trim().toLowerCase();
+  if (name.endsWith(".mp4")) return "video/mp4";
+
+  return null;
+}
+
+async function removeDrillMediaObject(bucket: string, objectPath: string): Promise<void> {
+  const client = sbAdmin;
+  if (!client) return;
+
+  await client.storage.from(bucket).remove([objectPath]);
+}
+
+type DrillMediaBatchUploadItem = DrillMediaBatchInput["items"][number] & {
+  file: File;
+};
 
 async function ensureDrillOrg(
   drill_id: string,
@@ -261,6 +297,137 @@ export async function createDrillMedia(
   }
 
   return { data: mapDrillMediaRow(data), error: null };
+}
+
+export async function uploadDrillMediaBatch(
+  input: {
+    org_id: string;
+    items: DrillMediaBatchUploadItem[];
+  },
+): Promise<{ data: DrillMediaBatchResult | null; error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { data: null, error: new Error("Supabase client not initialized") };
+  }
+
+  const results: DrillMediaBatchItemResult[] = [];
+
+  for (const item of input.items) {
+    const fileName = sanitizeFileName(item.file.name || `${item.file_field}.mp4`);
+    const contentType = resolveBatchVideoContentType(item.file);
+
+    if (!contentType) {
+      results.push({
+        file_field: item.file_field,
+        file_name: fileName,
+        drill_id: item.drill_id,
+        status: "failed",
+        reason: "Only .mp4 videos are supported",
+        upload: null,
+        media: null,
+      });
+      continue;
+    }
+
+    const { data: upload, error: uploadUrlError } = await createDrillMediaUploadUrl({
+      org_id: input.org_id,
+      drill_id: item.drill_id,
+      file_name: fileName,
+      content_type: contentType,
+      type: "video",
+      title: item.title,
+      description: item.description,
+      thumbnail_url: item.thumbnail_url,
+      position: item.position,
+    });
+
+    if (uploadUrlError || !upload) {
+      results.push({
+        file_field: item.file_field,
+        file_name: fileName,
+        drill_id: item.drill_id,
+        status: "failed",
+        reason: getErrorMessage(uploadUrlError),
+        upload: null,
+        media: null,
+      });
+      continue;
+    }
+
+    let uploadedToStorage = false;
+    const { error: storageError } = await client.storage
+      .from(upload.bucket)
+      .uploadToSignedUrl(upload.path, upload.token, item.file, {
+        contentType,
+      });
+
+    if (storageError) {
+      results.push({
+        file_field: item.file_field,
+        file_name: fileName,
+        drill_id: item.drill_id,
+        status: "failed",
+        reason: getErrorMessage(storageError),
+        upload,
+        media: null,
+      });
+      continue;
+    } else {
+      uploadedToStorage = true;
+    }
+
+    const { data: media, error: mediaError } = await createDrillMedia({
+      org_id: input.org_id,
+      drill_id: item.drill_id,
+      type: "video",
+      url: upload.public_url,
+      title: item.title,
+      description: item.description,
+      thumbnail_url: item.thumbnail_url,
+      position: item.position,
+    });
+
+    if (mediaError || !media) {
+      if (uploadedToStorage) {
+        await removeDrillMediaObject(upload.bucket, upload.path);
+      }
+      results.push({
+        file_field: item.file_field,
+        file_name: fileName,
+        drill_id: item.drill_id,
+        status: "failed",
+        reason: getErrorMessage(mediaError),
+        upload,
+        media: null,
+      });
+      continue;
+    }
+
+    results.push({
+      file_field: item.file_field,
+      file_name: fileName,
+      drill_id: item.drill_id,
+      status: "uploaded",
+      reason: null,
+      upload,
+      media,
+    });
+  }
+
+  const uploaded = results.filter((item) => item.status === "uploaded").length;
+  const skipped = results.filter((item) => item.status === "skipped").length;
+  const failed = results.filter((item) => item.status === "failed").length;
+
+  return {
+    data: {
+      total: results.length,
+      uploaded,
+      skipped,
+      failed,
+      items: results,
+    },
+    error: null,
+  };
 }
 
 export async function createDrill(dto: CreateDrillDto): Promise<{

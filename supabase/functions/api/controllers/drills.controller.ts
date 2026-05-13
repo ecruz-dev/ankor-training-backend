@@ -1,6 +1,7 @@
 import {
   CreateDrillSchema,
   CreateDrillMediaSchema,
+  DrillMediaBatchSchema,
   DrillMediaUploadSchema,
   normalizeCreateDrillDto,
   DrillListFilterSchema,
@@ -16,6 +17,7 @@ import {
   listDrills,
   listSegments,
   getDrillById,
+  uploadDrillMediaBatch,
   updateDrill,
 } from "../services/drills.service.ts";
 import {
@@ -29,6 +31,7 @@ import {
 } from "../utils/http.ts";
 import type { RequestContext } from "../routes/router.ts";
 import { RE_UUID } from "../utils/uuid.ts";
+import { requireOrgRole } from "../utils/auth.ts";
 
 function qp(url: URL, key: string): string | undefined {
   const v = url.searchParams.get(key);
@@ -323,7 +326,7 @@ export async function updateDrillController(
 export async function getDrillMediaPlaybackController(
   req: Request,
   _origin: string | null,
-  params?: { id?: string },
+  params?: { drill_id?: string },
   ctx?: RequestContext,
 ): Promise<Response> {
   if (req.method !== "GET") {
@@ -459,4 +462,82 @@ export async function createDrillMediaController(
   }
 
   return created({ ok: true, media: data });
+}
+
+export async function createDrillMediaBatchUploadController(
+  req: Request,
+  _origin?: string | null,
+  _params?: Record<string, string>,
+  ctx?: RequestContext,
+): Promise<Response> {
+  if (req.method !== "POST") {
+    return methodNotAllowed(["POST"]);
+  }
+
+  const form = await req.formData().catch(() => null);
+  if (!form) {
+    return badRequest("multipart/form-data payload is required");
+  }
+
+  const rawOrgId = form.get("org_id");
+  const rawItems = form.get("items");
+  if (typeof rawOrgId !== "string" || !rawOrgId.trim()) {
+    return badRequest("org_id (UUID) is required");
+  }
+  if (typeof rawItems !== "string" || !rawItems.trim()) {
+    return badRequest("items is required");
+  }
+
+  let parsedItems: unknown;
+  try {
+    parsedItems = JSON.parse(rawItems);
+  } catch {
+    return badRequest("items must be a valid JSON array");
+  }
+
+  const parsed = DrillMediaBatchSchema.safeParse({
+    org_id: rawOrgId,
+    items: parsedItems,
+  });
+  if (!parsed.success) {
+    const message = parsed.error.issues.map((issue) => issue.message).join("; ");
+    return badRequest(message);
+  }
+
+  if (!ctx?.user?.id) {
+    return unauthorized("Unauthorized");
+  }
+
+  const access = await requireOrgRole(ctx.user.id, parsed.data.org_id, ["coach"]);
+  if ("response" in access) return access.response;
+
+  ctx.org_id = parsed.data.org_id;
+  ctx.org_role = access.role;
+
+  const uploadItems = [];
+  for (const item of parsed.data.items) {
+    const file = form.get(item.file_field);
+    if (!(file instanceof File)) {
+      return badRequest(`File field '${item.file_field}' is required`);
+    }
+
+    uploadItems.push({
+      ...item,
+      file,
+    });
+  }
+
+  const { data, error } = await uploadDrillMediaBatch({
+    org_id: parsed.data.org_id,
+    items: uploadItems,
+  });
+  if (error || !data) {
+    console.error("[createDrillMediaBatchUploadController] error", error);
+    return internalError(error, "Failed to upload drill media batch");
+  }
+
+  return json(200, {
+    ok: data.failed === 0,
+    ...data,
+  });
 }
