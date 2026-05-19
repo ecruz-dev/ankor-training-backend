@@ -91,7 +91,20 @@ function Invoke-JsonPost {
 }
 
 if (-not (Test-Path -LiteralPath $Folder -PathType Container)) {
-  throw "Folder not found: $Folder"
+  $parent = Split-Path -Path $Folder -Parent
+  $message = "Folder not found: $Folder"
+
+  if ($parent -and (Test-Path -LiteralPath $parent -PathType Container)) {
+    $availableFolders = Get-ChildItem -LiteralPath $parent -Directory |
+      Sort-Object Name |
+      Select-Object -ExpandProperty Name
+
+    if ($availableFolders.Count -gt 0) {
+      $message += "`nAvailable folders in ${parent}: $($availableFolders -join ', ')"
+    }
+  }
+
+  throw $message
 }
 
 if (-not (Test-Uuid $OrgId)) {

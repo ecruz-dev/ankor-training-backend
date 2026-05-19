@@ -423,7 +423,8 @@ create table if not exists public.drill_subskills (
 );
 
 create table if not exists public.skill_drill_map (
-  skill_id uuid not null references public.scorecard_subskills(id) on delete cascade,
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  skill_id uuid not null references public.skills(id) on delete cascade,
   drill_id uuid not null references public.drills(id) on delete cascade,
   level integer null,
   created_at timestamptz not null default now(),
@@ -446,7 +447,7 @@ create table if not exists public.evaluation_items (
   id uuid primary key default gen_random_uuid(),
   evaluation_id uuid not null references public.evaluations(id) on delete cascade,
   athlete_id uuid not null references public.athletes(id) on delete cascade,
-  subskill_id uuid not null references public.scorecard_subskills(id) on delete cascade,
+  subskill_id uuid not null references public.skills(id) on delete cascade,
   rating numeric null,
   comment text null,
   recommended_skill_id uuid null references public.skills(id) on delete set null,
@@ -662,6 +663,8 @@ create index if not exists idx_teams_org_id on public.teams(org_id);
 create index if not exists idx_guardian_contacts_org_id on public.guardian_contacts(org_id);
 create index if not exists idx_skills_org_id on public.skills(org_id);
 create index if not exists idx_drills_org_id on public.drills(org_id);
+create index if not exists idx_skill_drill_map_org_id on public.skill_drill_map(org_id);
+create index if not exists idx_skill_drill_map_org_skill on public.skill_drill_map(org_id, skill_id);
 create index if not exists idx_evaluations_org_id on public.evaluations(org_id);
 create index if not exists idx_evaluation_items_evaluation_id on public.evaluation_items(evaluation_id);
 create index if not exists idx_practice_plans_org_id on public.practice_plans(org_id);
@@ -955,6 +958,154 @@ begin
   end loop;
 
   return v_result;
+end;
+$$;
+
+create or replace function public.list_evaluation_skill_videos(
+  p_evaluation_id uuid,
+  p_org_id uuid,
+  p_athlete_id uuid,
+  p_rating_max numeric default 3
+) returns table (
+  evaluation_id uuid,
+  skill_id uuid,
+  title text,
+  url text,
+  rating numeric,
+  created_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    items.evaluation_id,
+    media.skill_id,
+    skills.title,
+    media.url,
+    items.rating::numeric as rating,
+    items.created_at
+  from public.evaluations evals
+  inner join public.evaluation_items items
+    on evals.id = items.evaluation_id
+  left join public.scorecard_subskills subskills
+    on items.subskill_id = subskills.id
+  inner join public.skill_media media
+    on media.skill_id = coalesce(subskills.skill_id, items.subskill_id)
+  inner join public.skills skills
+    on media.skill_id = skills.id
+  where evals.id = p_evaluation_id
+    and evals.org_id = p_org_id
+    and items.athlete_id = p_athlete_id
+    and items.rating < p_rating_max
+    and media.media_type = 'video'
+  order by items.created_at desc, media.sort_order asc nulls last;
+$$;
+
+create or replace function public.submit_evaluation_tx(
+  p_evaluation_id uuid,
+  p_org_id uuid
+) returns table (
+  id uuid,
+  status text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status text;
+begin
+  perform 1
+  from public.evaluations as evals
+  where evals.id = p_evaluation_id
+    and evals.org_id = p_org_id;
+
+  if not found then
+    raise exception 'Evaluation not found';
+  end if;
+
+  update public.evaluations as evals
+  set status = 'completed'
+  where evals.id = p_evaluation_id
+    and evals.org_id = p_org_id
+    and evals.status in ('not_started', 'in_progress')
+  returning evals.status into v_status;
+
+  if v_status is null then
+    select evals.status
+      into v_status
+    from public.evaluations as evals
+    where evals.id = p_evaluation_id
+      and evals.org_id = p_org_id
+    limit 1;
+  end if;
+
+  insert into public.evaluation_workout_progress (
+    org_id,
+    evaluation_id,
+    athlete_id,
+    progress,
+    level,
+    created_at,
+    updated_at
+  )
+  select
+    items.org_id,
+    items.evaluation_id,
+    items.athlete_id,
+    0 as progress,
+    1 as level,
+    now() as created_at,
+    now() as updated_at
+  from (
+    select
+      evals.org_id,
+      evals.id as evaluation_id,
+      eval_items.athlete_id
+    from public.evaluation_items eval_items
+    inner join public.evaluations evals
+      on eval_items.evaluation_id = evals.id
+    where eval_items.evaluation_id = p_evaluation_id
+      and evals.org_id = p_org_id
+    group by evals.org_id, evals.id, eval_items.athlete_id
+  ) as items
+  on conflict (org_id, evaluation_id, athlete_id) do nothing;
+
+  insert into public.evaluation_workout_drills (
+    org_id,
+    evaluation_id,
+    athlete_id,
+    skill_id,
+    drill_id,
+    rate,
+    level,
+    created_at,
+    updated_at
+  )
+  select
+    evals.org_id,
+    evals.id as evaluation_id,
+    items.athlete_id,
+    drills.skill_id,
+    drills.drill_id,
+    items.rating,
+    drills.level,
+    now() as created_at,
+    now() as updated_at
+  from public.evaluations evals
+  inner join public.evaluation_items items
+    on evals.id = items.evaluation_id
+  inner join public.skill_drill_map drills
+    on items.subskill_id = drills.skill_id
+  where evals.id = p_evaluation_id
+    and evals.org_id = p_org_id
+    and items.rating < 3
+    and drills.level is not null
+  order by items.athlete_id, drills.skill_id, drills.level;
+
+  return query select p_evaluation_id as id, v_status as status;
 end;
 $$;
 

@@ -2,7 +2,7 @@ import type { Middleware, RequestContext } from "../routes/router.ts";
 import { sbAdmin, sbAnon } from "../services/supabase.ts";
 import { forbidden, unauthorized } from "./http.ts";
 
-const ORG_ROLES = ["owner", "admin", "coach", "athlete", "parent"] as const;
+const ORG_ROLES = ["owner", "admin", "coach", "staff", "athlete", "parent", "viewer"] as const;
 export type OrgRole = (typeof ORG_ROLES)[number];
 
 export type AuthUser = {
@@ -67,6 +67,22 @@ async function getOrgRole(
   const client = sbAdmin;
   if (!client) return null;
 
+  const { data: profile, error: profileError } = await client
+    .from("profiles")
+    .select("role, default_org_id")
+    .eq("user_id", userId)
+    .eq("default_org_id", orgId)
+    .maybeSingle();
+
+  if (
+    !profileError &&
+    profile?.role &&
+    ORG_ROLES.includes(profile.role as OrgRole) &&
+    isAdminRole(profile.role as OrgRole)
+  ) {
+    return profile.role as OrgRole;
+  }
+
   const { data, error } = await client
     .from("org_memberships")
     .select("role, is_active")
@@ -82,6 +98,7 @@ async function getOrgRole(
 
 function hasRoleAccess(role: OrgRole, allowedRoles: OrgRole[]): boolean {
   if (isAdminRole(role)) return true;
+  if (role === "staff" && allowedRoles.includes("coach")) return true;
   return allowedRoles.includes(role);
 }
 

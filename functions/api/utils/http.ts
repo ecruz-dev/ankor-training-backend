@@ -73,8 +73,17 @@ export function methodNotAllowed(
 }
 
 export function internalError(err: unknown, fallback = "Internal Server Error"): Response {
-  const message =
-    err instanceof Error ? err.message : typeof err === "string" ? err : fallback;
+  let message = fallback;
+  if (err instanceof Error) {
+    message = err.message;
+  } else if (typeof err === "string") {
+    message = err;
+  } else if (err && typeof err === "object") {
+    const value = err as { message?: unknown; details?: unknown; error?: unknown };
+    if (typeof value.message === "string") message = value.message;
+    else if (typeof value.details === "string") message = value.details;
+    else if (typeof value.error === "string") message = value.error;
+  }
 
   return json(500, {
     ok: false,

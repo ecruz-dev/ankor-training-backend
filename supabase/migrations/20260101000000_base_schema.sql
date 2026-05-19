@@ -423,7 +423,7 @@ create table if not exists public.drill_subskills (
 );
 
 create table if not exists public.skill_drill_map (
-  skill_id uuid not null references public.scorecard_subskills(id) on delete cascade,
+  skill_id uuid not null references public.skills(id) on delete cascade,
   drill_id uuid not null references public.drills(id) on delete cascade,
   level integer null,
   created_at timestamptz not null default now(),

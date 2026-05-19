@@ -317,6 +317,9 @@ export async function updateDrillController(
     if (message.toLowerCase().includes("not found")) {
       return jsonResponse({ ok: false, error: "Drill not found" }, { status: 404 });
     }
+    if (message.toLowerCase().includes("do not belong")) {
+      return badRequest(message);
+    }
     return internalError(error, "Failed to update drill");
   }
 

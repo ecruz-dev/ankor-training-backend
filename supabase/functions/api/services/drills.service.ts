@@ -539,6 +539,26 @@ export async function updateDrill(
   const removeTagIds = Array.from(new Set(input.remove_tag_ids ?? []));
   const removeSet = removeTagIds.filter((id) => !addTagIds.includes(id));
 
+  if (addTagIds.length > 0) {
+    const { data: tags, error } = await client
+      .from("drill_tags")
+      .select("id")
+      .eq("org_id", org_id)
+      .in("id", addTagIds);
+
+    if (error) {
+      return { data: null, error };
+    }
+
+    const foundTagIds = new Set((tags ?? []).map((tag: { id: string }) => tag.id));
+    if (addTagIds.some((id) => !foundTagIds.has(id))) {
+      return {
+        data: null,
+        error: new Error("One or more drill tags do not belong to this organization"),
+      };
+    }
+  }
+
   if (removeSet.length > 0) {
     const { error } = await client
       .from("drill_tag_map")
@@ -826,10 +846,7 @@ export async function getDrillById(
       visibility,
       is_archived,
       created_at,
-      updated_at,
-      segment:segments(id, name),
-      drill_media(id, media_type, title, url, thumbnail_url, sort_order),
-      drill_tag_map(tag_id, drill_tags!inner(id, name))
+      updated_at
     `)
     .eq("id", drill_id)
     .eq("org_id", org_id)
@@ -839,5 +856,60 @@ export async function getDrillById(
     return { data: null, error };
   }
 
-  return { data: data ? mapDrillRowToDto(data) : null, error: null };
+  if (!data) {
+    return { data: null, error: null };
+  }
+
+  const [segmentResult, mediaResult, tagMapResult] = await Promise.all([
+    data.segment_id
+      ? client
+        .from("segments")
+        .select("id, name")
+        .eq("id", data.segment_id)
+        .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    client
+      .from("drill_media")
+      .select("id, drill_id, media_type, title, url, thumbnail_url, sort_order")
+      .eq("drill_id", drill_id)
+      .order("sort_order", { ascending: true }),
+    client
+      .from("drill_tag_map")
+      .select("tag_id")
+      .eq("drill_id", drill_id),
+  ]);
+
+  if (segmentResult.error) return { data: null, error: segmentResult.error };
+  if (mediaResult.error) return { data: null, error: mediaResult.error };
+  if (tagMapResult.error) return { data: null, error: tagMapResult.error };
+
+  const tagIds = (tagMapResult.data ?? []).map((item: { tag_id: string }) => item.tag_id);
+  const tagRowsResult = tagIds.length > 0
+    ? await client
+      .from("drill_tags")
+      .select("id, name")
+      .in("id", tagIds)
+    : { data: [], error: null };
+
+  if (tagRowsResult.error) return { data: null, error: tagRowsResult.error };
+  const tagsById = new Map(
+    (tagRowsResult.data ?? []).map((tag: { id: string; name: string | null }) => [
+      tag.id,
+      tag,
+    ]),
+  );
+
+  return {
+    data: mapDrillRowToDto({
+      ...data,
+      segment: segmentResult.data,
+      drill_media: mediaResult.data ?? [],
+      drill_tag_map: tagIds
+        .map((tag_id: string) => ({ tag_id, drill_tags: tagsById.get(tag_id) }))
+        .filter((item: { drill_tags?: { id: string; name: string | null } }) =>
+          Boolean(item.drill_tags)
+        ),
+    }),
+    error: null,
+  };
 }
