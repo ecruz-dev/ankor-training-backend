@@ -8,6 +8,7 @@ export type OrgRole = (typeof ORG_ROLES)[number];
 export type AuthUser = {
   id: string;
   email: string | null;
+  app_metadata?: Record<string, unknown>;
 };
 
 function getBearerToken(req: Request): string | null {
@@ -37,8 +38,39 @@ export async function requireAuthUser(
     user: {
       id: data.user.id,
       email: data.user.email ?? null,
+      app_metadata: data.user.app_metadata ?? {},
     },
   };
+}
+
+export async function requireSysAdmin(
+  user: AuthUser,
+): Promise<{ ok: true } | { response: Response }> {
+  const appRole =
+    typeof user.app_metadata?.role === "string"
+      ? user.app_metadata.role.trim().toLowerCase()
+      : "";
+  if (appRole === "sys-admin") return { ok: true };
+
+  const client = sbAdmin;
+  if (!client) return { response: forbidden("Auth admin client not configured") };
+
+  const { data, error } = await client
+    .from("profiles")
+    .select("role")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error) return { response: forbidden("Unable to verify system role") };
+
+  const profileRole =
+    typeof data?.role === "string" ? data.role.trim().toLowerCase() : "";
+
+  if (profileRole !== "sys-admin") {
+    return { response: forbidden("Only sys-admin users can perform this action") };
+  }
+
+  return { ok: true };
 }
 
 async function ensureUser(
@@ -71,11 +103,19 @@ async function getOrgRole(
     .from("profiles")
     .select("role, default_org_id")
     .eq("user_id", userId)
-    .eq("default_org_id", orgId)
     .maybeSingle();
 
   if (
     !profileError &&
+    typeof profile?.role === "string" &&
+    profile.role.trim().toLowerCase() === "sys-admin"
+  ) {
+    return "owner";
+  }
+
+  if (
+    !profileError &&
+    profile?.default_org_id === orgId &&
     profile?.role &&
     ORG_ROLES.includes(profile.role as OrgRole) &&
     isAdminRole(profile.role as OrgRole)

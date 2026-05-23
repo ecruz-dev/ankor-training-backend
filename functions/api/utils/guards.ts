@@ -2,7 +2,7 @@ import type { Middleware } from "../routes/router.ts";
 import { getPlanAccess, isPlanMember } from "../services/plans.service.ts";
 import { RE_UUID } from "./uuid.ts";
 import { badRequest, forbidden, internalError, notFound, unauthorized } from "./http.ts";
-import { requireOrgRole, type OrgRole } from "./auth.ts";
+import { requireOrgRole, requireSysAdmin, type OrgRole } from "./auth.ts";
 
 function getUserId(ctx: { user?: { id: string } }): string | Response {
   if (!ctx.user) return unauthorized("Unauthorized");
@@ -27,6 +27,15 @@ export function orgRoleGuardFromQuery(
 
     ctx.org_id = org_id;
     ctx.org_role = access.role;
+    return null;
+  };
+}
+
+export function sysAdminGuard(): Middleware {
+  return async (_req, _origin, _params, ctx) => {
+    if (!ctx.user) return unauthorized("Unauthorized");
+    const access = await requireSysAdmin(ctx.user);
+    if ("response" in access) return access.response;
     return null;
   };
 }
