@@ -366,3 +366,27 @@ export async function createGuardian(
 
   return guardianResult;
 }
+
+export async function deleteGuardian(
+  guardian_id: string,
+  org_id: string,
+): Promise<{ data: { id: string } | null; error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { data: null, error: new Error("Supabase client not initialized") };
+  }
+
+  const { data, error } = await client
+    .from("guardian_contacts")
+    .delete()
+    .eq("id", guardian_id)
+    .eq("org_id", org_id)
+    .select("id");
+
+  if (error) return { data: null, error };
+  if (!data || data.length === 0) {
+    return { data: null, error: new Error("Guardian not found") };
+  }
+
+  return { data: { id: data[0].id }, error: null };
+}

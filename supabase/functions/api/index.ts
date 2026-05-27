@@ -40,6 +40,7 @@ router.use("teams", createTeamsRouter(), [requireAuth]);
 router.use("athletes", createAthletesRouter(), [requireAuth]);
 router.use("coaches", createCoachesRouter(), [requireAuth]);
 router.use("guardians", createGuardiansRouter(), [requireAuth]);
+router.use("parents", createGuardiansRouter(), [requireAuth]);
 router.use("evaluations", createEvaluationsRouter(), [requireAuth]);
 router.use("drills", createDrillsRouter(), [requireAuth]);
 router.use("skill-drill-map", createSkillDrillMapRouter(), [requireAuth]);

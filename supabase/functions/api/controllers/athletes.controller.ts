@@ -6,6 +6,7 @@ import {
 } from "../dtos/athletes.dto.ts";
 import {
   createAthlete,
+  deleteAthlete,
   getAthleteById,
   listAthletes,
   updateAthlete,
@@ -189,4 +190,44 @@ export async function updateAthleteController(
   }
 
   return json(200, { ok: true, athlete: data });
+}
+
+export async function deleteAthleteController(
+  req: Request,
+  _origin?: string | null,
+  params?: { id?: string },
+  ctx?: RequestContext,
+): Promise<Response> {
+  if (req.method !== "DELETE") {
+    return methodNotAllowed(["DELETE"]);
+  }
+
+  const athlete_id = params?.id;
+  if (!athlete_id) {
+    return badRequest("Missing 'id' path parameter");
+  }
+
+  const idParsed = GetAthleteByIdSchema.safeParse({ athlete_id });
+  if (!idParsed.success) {
+    const message = idParsed.error.issues.map((issue) => issue.message).join("; ");
+    return badRequest(message);
+  }
+
+  const url = new URL(req.url);
+  const org_id = (ctx?.org_id ?? url.searchParams.get("org_id") ?? "").trim();
+  if (!RE_UUID.test(org_id)) {
+    return badRequest("org_id (UUID) is required");
+  }
+
+  const { data, error } = await deleteAthlete(idParsed.data.athlete_id, org_id);
+  if (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.toLowerCase().includes("not found")) {
+      return notFound("Athlete not found");
+    }
+    console.error("[deleteAthleteController] delete error", error);
+    return internalError(error, "Failed to delete athlete");
+  }
+
+  return json(200, { ok: true, deleted: data });
 }

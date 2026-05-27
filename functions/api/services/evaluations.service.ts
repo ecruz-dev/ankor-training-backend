@@ -1433,6 +1433,30 @@ export async function getEvaluationById(
   return toEvaluationDetailDto(data);
 }
 
+export async function deleteEvaluation(
+  evaluationId: string,
+  org_id: string,
+): Promise<{ data: { id: string } | null; error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { data: null, error: new Error("Supabase client not initialized") };
+  }
+
+  const { data, error } = await client
+    .from("evaluations")
+    .delete()
+    .eq("id", evaluationId)
+    .eq("org_id", org_id)
+    .select("id");
+
+  if (error) return { data: null, error };
+  if (!data || data.length === 0) {
+    return { data: null, error: new Error("Evaluation not found") };
+  }
+
+  return { data: { id: data[0].id }, error: null };
+}
+
 
 export async function applyEvaluationMatrixUpdateService(
   dto: EvaluationMatrixUpdateDto,

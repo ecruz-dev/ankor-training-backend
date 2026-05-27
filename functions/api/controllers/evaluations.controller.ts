@@ -16,6 +16,7 @@ import {
   listEvaluationWorkoutDrills,
   listLatestEvaluationWorkoutDrills,
   getEvaluationById,
+  deleteEvaluation,
   applyEvaluationMatrixUpdateService,
   submitEvaluation,
   buildEvaluationReportEmailInputs,
@@ -1006,6 +1007,48 @@ export async function handleEvaluationById(
       { ok: false, error: "Internal server error" },
       { status: 500 },
     );
+  }
+}
+
+export async function handleDeleteEvaluation(
+  req: Request,
+  _origin?: string | null,
+  params?: { id?: string },
+  ctx?: RequestContext,
+): Promise<Response> {
+  try {
+    if (req.method !== "DELETE") {
+      return methodNotAllowed(["DELETE"]);
+    }
+
+    const id = (params?.id ?? "").trim();
+    if (!RE_UUID.test(id)) {
+      return badRequest("id (UUID) is required");
+    }
+
+    const url = new URL(req.url);
+    const org_id = (ctx?.org_id ?? url.searchParams.get("org_id") ?? "").trim();
+    if (!RE_UUID.test(org_id)) {
+      return badRequest("org_id (UUID) is required");
+    }
+
+    const { data, error } = await deleteEvaluation(id, org_id);
+    if (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("not found")) {
+        return jsonResponse(
+          { ok: false, error: "Evaluation not found" },
+          { status: 404 },
+        );
+      }
+      console.error("[handleDeleteEvaluation] delete error", error);
+      return internalError(error, "Failed to delete evaluation");
+    }
+
+    return json(200, { ok: true, deleted: data });
+  } catch (err) {
+    console.error("[handleDeleteEvaluation] Unexpected error", err);
+    return internalError(err, "Failed to delete evaluation");
   }
 }
 

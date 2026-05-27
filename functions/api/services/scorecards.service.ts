@@ -391,7 +391,7 @@ export async function updateScorecardTemplate(args: {
 
     const subskillRows = add_subskills.map((subskill) => {
       const current = maxPositions.get(subskill.category_id) ?? 0;
-      const position = Number.isFinite(subskill.position)
+      const position = typeof subskill.position === "number" && Number.isFinite(subskill.position)
         ? subskill.position
         : current + 1;
       if (!Number.isFinite(subskill.position)) {
@@ -442,6 +442,34 @@ export async function updateScorecardTemplate(args: {
       added_subskill_ids: addedSubskillIds,
       removed_subskill_ids: remove_subskill_ids,
     },
+    error: null,
+    notFound: false,
+  };
+}
+
+export async function deleteScorecardTemplate(args: {
+  org_id: string;
+  template_id: string;
+}) {
+  const { org_id, template_id } = args;
+
+  const { data, error } = await sbAdmin!
+    .from("scorecard_templates")
+    .delete()
+    .eq("id", template_id)
+    .eq("org_id", org_id)
+    .select("id");
+
+  if (error) {
+    return { data: null, error, notFound: false };
+  }
+
+  if (!data || data.length === 0) {
+    return { data: null, error: null, notFound: true };
+  }
+
+  return {
+    data: { id: data[0].id },
     error: null,
     notFound: false,
   };

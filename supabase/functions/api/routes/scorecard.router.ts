@@ -3,6 +3,7 @@ import {
   handleScorecardsCreateTemplate,
   handleScorecardsList,
   handleScorecardById,
+  handleScorecardDelete,
   handleScorecardUpdate,
   handleScorecardCategoriesByTemplate,
   handleScorecardSubskillsByCategory
@@ -59,6 +60,12 @@ export function createScorecardsRouter(): Router {
     ":id",
     handleScorecardUpdate,
     [orgRoleGuardFromBody("org_id", ["coach"])],
+  );
+  router.add(
+    "DELETE",
+    ":id",
+    handleScorecardDelete,
+    [orgRoleGuardFromQuery("org_id", ["coach"])],
   );
 
   return router;

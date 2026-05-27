@@ -236,6 +236,30 @@ export async function updateCoach(
   return await getCoachById(coach_id, org_id);
 }
 
+export async function deleteCoach(
+  coach_id: string,
+  org_id: string,
+): Promise<{ data: { id: string } | null; error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { data: null, error: new Error("Supabase client not initialized") };
+  }
+
+  const { data, error } = await client
+    .from("coaches")
+    .delete()
+    .eq("id", coach_id)
+    .eq("org_id", org_id)
+    .select("id");
+
+  if (error) return { data: null, error };
+  if (!data || data.length === 0) {
+    return { data: null, error: new Error("Coach not found") };
+  }
+
+  return { data: { id: data[0].id }, error: null };
+}
+
 export type CoachSummary = {
   total_teams: number;
   total_athletes: number;

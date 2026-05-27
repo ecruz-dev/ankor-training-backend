@@ -1,6 +1,7 @@
 import { Router } from "./router.ts";
 import {
   createGuardianController,
+  deleteGuardianController,
   getGuardianByIdController,
   listGuardiansController,
   updateGuardianController,
@@ -32,6 +33,12 @@ export function createGuardiansRouter(): Router {
     "PATCH",
     ":id",
     updateGuardianController,
+    [orgRoleGuardFromQuery("org_id", ["coach"])],
+  );
+  router.add(
+    "DELETE",
+    ":id",
+    deleteGuardianController,
     [orgRoleGuardFromQuery("org_id", ["coach"])],
   );
 

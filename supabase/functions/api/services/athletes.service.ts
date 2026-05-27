@@ -432,14 +432,16 @@ export async function createAthlete(
       }
       if (guardianUserCreated && guardianUserId) {
         await client.auth.admin.deleteUser(guardianUserId).catch(() => {});
-        try {
-          await client
-            .from("guardian_contacts")
-            .delete()
-            .eq("org_id", input.org_id)
-            .ilike("email", guardianEmail);
-        } catch {
-          // ignore cleanup failure
+        if (guardianEmail) {
+          try {
+            await client
+              .from("guardian_contacts")
+              .delete()
+              .eq("org_id", input.org_id)
+              .ilike("email", guardianEmail);
+          } catch {
+            // ignore cleanup failure
+          }
         }
       }
       return { data: null, error: positionsError };
@@ -462,14 +464,16 @@ export async function createAthlete(
     }
     if (guardianUserCreated && guardianUserId) {
       await client.auth.admin.deleteUser(guardianUserId).catch(() => {});
-      try {
-        await client
-          .from("guardian_contacts")
-          .delete()
-          .eq("org_id", input.org_id)
-          .ilike("email", guardianEmail);
-      } catch {
-        // ignore cleanup failure
+      if (guardianEmail) {
+        try {
+          await client
+            .from("guardian_contacts")
+            .delete()
+            .eq("org_id", input.org_id)
+            .ilike("email", guardianEmail);
+        } catch {
+          // ignore cleanup failure
+        }
       }
     }
     return {
@@ -559,4 +563,28 @@ export async function updateAthlete(
   }
 
   return await getAthleteById(athlete_id, org_id);
+}
+
+export async function deleteAthlete(
+  athlete_id: string,
+  org_id: string,
+): Promise<{ data: { id: string } | null; error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { data: null, error: new Error("Supabase client not initialized") };
+  }
+
+  const { data, error } = await client
+    .from("athletes")
+    .delete()
+    .eq("id", athlete_id)
+    .eq("org_id", org_id)
+    .select("id");
+
+  if (error) return { data: null, error };
+  if (!data || data.length === 0) {
+    return { data: null, error: new Error("Athlete not found") };
+  }
+
+  return { data: { id: data[0].id }, error: null };
 }

@@ -1,6 +1,7 @@
 import { Router } from "./router.ts";
 import {
   createCoachController,
+  deleteCoachController,
   getCoachByIdController,
   getCoachSummaryController,
   listCoachesController,
@@ -39,6 +40,12 @@ export function createCoachesRouter(): Router {
     "PATCH",
     ":id",
     updateCoachController,
+    [orgRoleGuardFromQuery("org_id", ["admin"])],
+  );
+  router.add(
+    "DELETE",
+    ":id",
+    deleteCoachController,
     [orgRoleGuardFromQuery("org_id", ["admin"])],
   );
 

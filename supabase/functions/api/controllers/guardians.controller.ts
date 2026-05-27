@@ -6,6 +6,7 @@ import {
 } from "../dtos/guardians.dto.ts";
 import {
   createGuardian,
+  deleteGuardian,
   getGuardianById,
   listGuardians,
   updateGuardian,
@@ -190,4 +191,44 @@ export async function updateGuardianController(
   }
 
   return json(200, { ok: true, guardian: data });
+}
+
+export async function deleteGuardianController(
+  req: Request,
+  _origin?: string | null,
+  params?: { id?: string },
+  ctx?: RequestContext,
+): Promise<Response> {
+  if (req.method !== "DELETE") {
+    return methodNotAllowed(["DELETE"]);
+  }
+
+  const guardian_id = params?.id;
+  if (!guardian_id) {
+    return badRequest("Missing 'id' path parameter");
+  }
+
+  const idParsed = GetGuardianByIdSchema.safeParse({ guardian_id });
+  if (!idParsed.success) {
+    const message = idParsed.error.issues.map((issue) => issue.message).join("; ");
+    return badRequest(message);
+  }
+
+  const url = new URL(req.url);
+  const org_id = (ctx?.org_id ?? url.searchParams.get("org_id") ?? "").trim();
+  if (!RE_UUID.test(org_id)) {
+    return badRequest("org_id (UUID) is required");
+  }
+
+  const { data, error } = await deleteGuardian(idParsed.data.guardian_id, org_id);
+  if (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.toLowerCase().includes("not found")) {
+      return notFound("Guardian not found");
+    }
+    console.error("[deleteGuardianController] delete error", error);
+    return internalError(error, "Failed to delete guardian");
+  }
+
+  return json(200, { ok: true, deleted: data });
 }

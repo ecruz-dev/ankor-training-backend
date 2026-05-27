@@ -2,6 +2,7 @@
 import { ScorecardTemplateCreateSchema } from "../schemas/schemas.ts";
 import { badRequest, json, notFound, serverError} from "../utils/responses.ts";
 import {
+  deleteScorecardTemplate,
   getScorecardTemplateById,
   updateScorecardTemplate,
   listScorecardCategoriesByTemplate,
@@ -227,7 +228,10 @@ export async function handleScorecardsCreateTemplate(
     categories,
   };
 
-  const rpcArgs: Record<string, unknown> = {
+  const rpcArgs: {
+    p_template: unknown;
+    p_created_by?: string;
+  } = {
     p_template: payload,
     p_created_by: userId,
   };
@@ -390,6 +394,40 @@ export async function handleScorecardUpdate(
     const message = err instanceof Error ? err.message : String(err);
     return badRequest(message, origin);
   }
+}
+
+// ---- Delete Template ----
+export async function handleScorecardDelete(
+  req: Request,
+  origin: string | null,
+  params?: Record<string, string>,
+  ctx?: RequestContext,
+) {
+  if (req.method !== "DELETE") return badRequest("Method not allowed", origin);
+
+  const template_id = (params?.id ?? "").trim();
+  if (!RE_UUID.test(template_id)) {
+    return badRequest("id (UUID) is required", origin);
+  }
+
+  const url = new URL(req.url);
+  const org_id = (ctx?.org_id ?? url.searchParams.get("org_id") ?? "").trim();
+  if (!RE_UUID.test(org_id)) {
+    return badRequest("org_id (UUID) is required", origin);
+  }
+
+  const { data, error, notFound: missing } = await deleteScorecardTemplate({
+    org_id,
+    template_id,
+  });
+
+  if (missing) return notFound("Scorecard template not found", origin);
+  if (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return serverError(message, origin);
+  }
+
+  return json({ ok: true, deleted: data }, origin, 200);
 }
 
 /**

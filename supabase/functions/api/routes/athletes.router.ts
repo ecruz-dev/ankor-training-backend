@@ -1,6 +1,7 @@
 import { Router } from "./router.ts";
 import {
   createAthleteController,
+  deleteAthleteController,
   getAthleteByIdController,
   listAthletesController,
   updateAthleteController,
@@ -32,6 +33,12 @@ export function createAthletesRouter(): Router {
     "PATCH",
     ":id",
     updateAthleteController,
+    [orgRoleGuardFromQuery("org_id", ["coach"])],
+  );
+  router.add(
+    "DELETE",
+    ":id",
+    deleteAthleteController,
     [orgRoleGuardFromQuery("org_id", ["coach"])],
   );
 

@@ -13,6 +13,7 @@ import {
   handleEvaluationWorkoutDrills,
   handleLatestEvaluationWorkoutDrills,
   handleEvaluationById,
+  handleDeleteEvaluation,
   updateEvaluationMatrixController,
   handleSubmitEvaluation,
 } from "../controllers/evaluations.controller.ts";
@@ -102,6 +103,18 @@ export function createEvaluationsRouter(): Router {
     "GET",
     "eval/:id",
     handleEvaluationById,
+    [orgRoleGuardFromQuery("org_id", ["coach"])],
+  );
+  router.add(
+    "DELETE",
+    "eval/:id",
+    handleDeleteEvaluation,
+    [orgRoleGuardFromQuery("org_id", ["coach"])],
+  );
+  router.add(
+    "DELETE",
+    ":id",
+    handleDeleteEvaluation,
     [orgRoleGuardFromQuery("org_id", ["coach"])],
   );
   router.add(

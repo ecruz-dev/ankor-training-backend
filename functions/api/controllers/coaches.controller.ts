@@ -6,6 +6,7 @@ import {
 } from "../dtos/coaches.dto.ts";
 import {
   createCoach,
+  deleteCoach,
   getCoachById,
   getCoachSummary,
   listCoaches,
@@ -231,4 +232,44 @@ export async function updateCoachController(
   }
 
   return json(200, { ok: true, coach: data });
+}
+
+export async function deleteCoachController(
+  req: Request,
+  _origin?: string | null,
+  params?: { id?: string },
+  ctx?: RequestContext,
+): Promise<Response> {
+  if (req.method !== "DELETE") {
+    return methodNotAllowed(["DELETE"]);
+  }
+
+  const coach_id = params?.id;
+  if (!coach_id) {
+    return badRequest("Missing 'id' path parameter");
+  }
+
+  const idParsed = GetCoachByIdSchema.safeParse({ coach_id });
+  if (!idParsed.success) {
+    const message = idParsed.error.issues.map((issue) => issue.message).join("; ");
+    return badRequest(message);
+  }
+
+  const url = new URL(req.url);
+  const org_id = (ctx?.org_id ?? url.searchParams.get("org_id") ?? "").trim();
+  if (!RE_UUID.test(org_id)) {
+    return badRequest("org_id (UUID) is required");
+  }
+
+  const { data, error } = await deleteCoach(idParsed.data.coach_id, org_id);
+  if (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.toLowerCase().includes("not found")) {
+      return notFound("Coach not found");
+    }
+    console.error("[deleteCoachController] delete error", error);
+    return internalError(error, "Failed to delete coach");
+  }
+
+  return json(200, { ok: true, deleted: data });
 }
