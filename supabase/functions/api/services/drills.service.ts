@@ -698,6 +698,9 @@ export async function listDrills(
     return { data: [], count: 0, error: null };
   }
 
+  console.log(`SPORT ID = ${sportId}`);
+  console.log(`ORG ID ${org_id}`);
+
   // IMPORTANT:
   // - If filtering by tags, embed drill_tag_map with !inner so drills are filtered.
   // - If not filtering by tags, don't use !inner or you’ll exclude drills with no tags.
@@ -730,7 +733,6 @@ export async function listDrills(
       `,
       { count: "exact" },
     )
-    .eq("org_id", org_id)
     .eq("sport_id", sportId)
     .range(offset, rangeTo)
     .order("created_at", { ascending: false });
@@ -748,6 +750,8 @@ export async function listDrills(
   if (skill_tag_ids?.length) {
     query = query.in("drill_tag_map.tag_id", skill_tag_ids);
   }
+
+  console.log(`SKILL TAG IDS = ${skill_tag_ids?.join(",")}`);
 
   const { data, error, count } = await query;
 
