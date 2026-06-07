@@ -180,9 +180,11 @@ function getErrorMessage(err: unknown): string {
 function resolveBatchVideoContentType(file: File): string | null {
   const type = file.type.trim().toLowerCase();
   if (type === "video/mp4") return type;
+  if (type === "video/quicktime") return type;
 
   const name = (file.name ?? "").trim().toLowerCase();
   if (name.endsWith(".mp4")) return "video/mp4";
+  if (name.endsWith(".mov")) return "video/quicktime";
 
   return null;
 }
@@ -220,6 +222,43 @@ async function removeSkillMediaObject(bucket: string, objectPath: string): Promi
   if (!client) return;
 
   await client.storage.from(bucket).remove([objectPath]);
+}
+
+async function removeOtherSkillVideoMedia(
+  skill_id: string,
+  keepMediaId: string,
+  keepUrl: string,
+): Promise<{ error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { error: new Error("Supabase client not initialized") };
+  }
+
+  const { data: removedRows, error } = await client
+    .from("skill_media")
+    .delete()
+    .eq("skill_id", skill_id)
+    .eq("media_type", "video")
+    .neq("id", keepMediaId)
+    .select("url");
+
+  if (error) {
+    return { error };
+  }
+
+  for (const row of removedRows ?? []) {
+    const url = typeof row?.url === "string" ? row.url : "";
+    if (!url || url === keepUrl) continue;
+
+    const parsed = parseStorageObjectUrl(url);
+    if (!parsed) continue;
+
+    await removeSkillMediaObject(parsed.bucket, parsed.path).catch((err) => {
+      console.error("[removeOtherSkillVideoMedia] failed to remove storage object", err);
+    });
+  }
+
+  return { error: null };
 }
 
 type SkillMediaBatchUploadItem = SkillMediaBatchInput["items"][number] & {
@@ -473,6 +512,18 @@ export async function createSkillMedia(
     return { data: null, error };
   }
 
+  if (media_type === "video") {
+    const { error: replaceError } = await removeOtherSkillVideoMedia(
+      input.skill_id,
+      data.id,
+      url,
+    );
+
+    if (replaceError) {
+      return { data: null, error: replaceError };
+    }
+  }
+
   return { data: mapSkillMediaRow(data, null), error: null };
 }
 
@@ -499,7 +550,7 @@ export async function uploadSkillMediaBatch(
         file_name: fileName,
         skill_id: item.skill_id,
         status: "failed",
-        reason: "Only .mp4 videos are supported",
+        reason: "Only .mp4 and .mov videos are supported",
         upload: null,
         media: null,
       });

@@ -112,6 +112,43 @@ async function removeDrillMediaObject(bucket: string, objectPath: string): Promi
   await client.storage.from(bucket).remove([objectPath]);
 }
 
+async function removeOtherDrillVideoMedia(
+  drill_id: string,
+  keepMediaId: string,
+  keepUrl: string,
+): Promise<{ error: unknown }> {
+  const client = sbAdmin;
+  if (!client) {
+    return { error: new Error("Supabase client not initialized") };
+  }
+
+  const { data: removedRows, error } = await client
+    .from("drill_media")
+    .delete()
+    .eq("drill_id", drill_id)
+    .eq("media_type", "video")
+    .neq("id", keepMediaId)
+    .select("url");
+
+  if (error) {
+    return { error };
+  }
+
+  for (const row of removedRows ?? []) {
+    const url = typeof row?.url === "string" ? row.url : "";
+    if (!url || url === keepUrl) continue;
+
+    const parsed = parseStorageObjectUrl(url);
+    if (!parsed) continue;
+
+    await removeDrillMediaObject(parsed.bucket, parsed.path).catch((err) => {
+      console.error("[removeOtherDrillVideoMedia] failed to remove storage object", err);
+    });
+  }
+
+  return { error: null };
+}
+
 type DrillMediaBatchUploadItem = DrillMediaBatchInput["items"][number] & {
   file: File;
 };
@@ -294,6 +331,18 @@ export async function createDrillMedia(
 
   if (error) {
     return { data: null, error };
+  }
+
+  if (type === "video") {
+    const { error: replaceError } = await removeOtherDrillVideoMedia(
+      drill_id,
+      data.id,
+      url,
+    );
+
+    if (replaceError) {
+      return { data: null, error: replaceError };
+    }
   }
 
   return { data: mapDrillMediaRow(data), error: null };

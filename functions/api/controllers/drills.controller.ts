@@ -59,6 +59,16 @@ function isUploadContentTypeValid(type: string, contentType: string): boolean {
   return true;
 }
 
+const MAX_BATCH_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+function contentLengthExceeds(req: Request, maxBytes: number): boolean {
+  const raw = req.headers.get("content-length");
+  if (!raw) return false;
+
+  const length = Number.parseInt(raw, 10);
+  return Number.isFinite(length) && length > maxBytes;
+}
+
 export async function createDrillController(
   req: Request,
   _origin?: string | null,
@@ -475,6 +485,14 @@ export async function createDrillMediaBatchUploadController(
 ): Promise<Response> {
   if (req.method !== "POST") {
     return methodNotAllowed(["POST"]);
+  }
+
+  if (contentLengthExceeds(req, MAX_BATCH_UPLOAD_BYTES)) {
+    return json(413, {
+      ok: false,
+      error: "Batch upload payload is too large. Use /api/drills/media/upload-url for direct storage uploads.",
+      max_bytes: MAX_BATCH_UPLOAD_BYTES,
+    });
   }
 
   const form = await req.formData().catch(() => null);
