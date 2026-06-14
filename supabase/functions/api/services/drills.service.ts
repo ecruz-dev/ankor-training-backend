@@ -488,11 +488,29 @@ export async function createDrill(dto: CreateDrillDto): Promise<{
     return { data: null, error: new Error("Supabase client not initialized") };
   }
 
+  const { data: orgRow, error: orgError } = await client
+    .from("organizations")
+    .select("sport_id")
+    .eq("id", dto.org_id)
+    .maybeSingle();
+
+  if (orgError) {
+    return { data: null, error: orgError };
+  }
+
+  if (!orgRow) {
+    return { data: null, error: new Error("Organization not found") };
+  }
+
+  if (!orgRow.sport_id) {
+    return { data: null, error: new Error("Organization does not have a sport_id") };
+  }
+
   const payload: RpcCreateDrillPayload = {
     p_drill: {
       org_id: dto.org_id,
       segment_id: dto.segment_id ?? null,
-      sport_id: dto.sport_id ?? null,
+      sport_id: orgRow.sport_id,
       name: dto.name.trim(),
       description: dto.description ?? null,
       instructions: dto.instructions ?? null,
@@ -882,6 +900,21 @@ export async function getDrillById(
     return { data: null, error: new Error("Supabase client not initialized") };
   }
 
+  const { data: orgRow, error: orgError } = await client
+    .from("organizations")
+    .select("sport_id")
+    .eq("id", org_id)
+    .maybeSingle();
+
+  if (orgError) {
+    return { data: null, error: orgError };
+  }
+
+  const sportId = orgRow?.sport_id ?? null;
+  if (!sportId) {
+    return { data: null, error: null };
+  }
+
   const { data, error } = await client
     .from("drills")
     .select(`
@@ -902,7 +935,7 @@ export async function getDrillById(
       updated_at
     `)
     .eq("id", drill_id)
-    .eq("org_id", org_id)
+    .eq("sport_id", sportId)
     .maybeSingle();
 
   if (error) {

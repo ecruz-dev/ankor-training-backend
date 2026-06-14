@@ -100,6 +100,13 @@ export async function createDrillController(
 
   if (error) {
     console.error("[createDrillController] rpc_create_drill error", error);
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.toLowerCase().includes("organization not found")) {
+      return jsonResponse({ ok: false, error: "Organization not found" }, { status: 404 });
+    }
+    if (message.toLowerCase().includes("does not have a sport_id")) {
+      return badRequest(message);
+    }
     return internalError(error, "Failed to create drill");
   }
 
