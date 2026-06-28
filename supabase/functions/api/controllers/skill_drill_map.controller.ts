@@ -3,6 +3,7 @@ import {
   CreateSkillDrillMapSchema,
   normalizeSkillDrillMapBulkCreate,
   normalizeSkillDrillMapCreate,
+  SkillDrillMapBySkillListSchema,
   SkillDrillMapListSchema,
   UpdateSkillDrillMapSchema,
 } from "../dtos/skill_drill_map.dto.ts";
@@ -11,6 +12,7 @@ import {
   createSkillDrillMaps,
   deleteSkillDrillMap,
   listSkillDrillMaps,
+  listSkillDrillMapsBySkill,
   updateSkillDrillMap,
 } from "../services/skill_drill_map.service.ts";
 import {
@@ -81,7 +83,7 @@ export async function listSkillDrillMapsBySkillController(
   req: Request,
   _origin: string | null,
   params?: { skill_id?: string },
-  ctx?: RequestContext,
+  _ctx?: RequestContext,
 ): Promise<Response> {
   if (req.method !== "GET") {
     return methodNotAllowed(["GET"]);
@@ -94,21 +96,22 @@ export async function listSkillDrillMapsBySkillController(
 
   const url = new URL(req.url);
   const raw = {
-    org_id: ctx?.org_id ?? queryValue(url, "org_id"),
     skill_id,
     drill_id: queryValue(url, "drill_id"),
     limit: queryValue(url, "limit"),
     offset: queryValue(url, "offset"),
   };
 
-  const parsed = SkillDrillMapListSchema.safeParse(raw);
+  const parsed = SkillDrillMapBySkillListSchema.safeParse(raw);
   if (!parsed.success) {
     return badRequest(validationMessage(parsed.error));
   }
 
-  const { data, count, error, notFound: missing } = await listSkillDrillMaps(parsed.data);
+  const { data, count, error } = await listSkillDrillMapsBySkill({
+    ...parsed.data,
+    skill_id,
+  });
   if (error) {
-    if (missing) return notFound(getErrorMessage(error));
     console.error("[listSkillDrillMapsBySkillController] list error", error);
     return internalError(error, "Failed to list skill drill mappings");
   }
@@ -210,7 +213,7 @@ export async function updateSkillDrillMapController(
   req: Request,
   _origin: string | null,
   params?: { skill_id?: string; drill_id?: string },
-  ctx?: RequestContext,
+  _ctx?: RequestContext,
 ): Promise<Response> {
   if (req.method !== "PATCH") {
     return methodNotAllowed(["PATCH"]);
@@ -231,12 +234,7 @@ export async function updateSkillDrillMapController(
     return badRequest(validationMessage(parsed.error));
   }
 
-  if (ctx?.org_id && ctx.org_id !== parsed.data.org_id) {
-    return badRequest("org_id does not match authorized organization");
-  }
-
   const { data, error, notFound: missing } = await updateSkillDrillMap({
-    org_id: parsed.data.org_id,
     skill_id,
     drill_id,
     level: parsed.data.level ?? null,

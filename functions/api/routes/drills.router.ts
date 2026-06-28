@@ -46,7 +46,6 @@ export function createDrillsRouter(): Router {
     "GET",
     "media/:drill_id/play",
     getDrillMediaPlaybackController,
-    [orgRoleGuardFromQuery("org_id", ["coach", "athlete", "parent"])],
   );
   router.add(
     "GET",
@@ -65,7 +64,6 @@ export function createDrillsRouter(): Router {
     "PATCH",
     ":id",
     updateDrillController,
-    [orgRoleGuardFromQuery("org_id", ["coach"])],
   );
   router.add(
     "GET",

@@ -42,7 +42,6 @@ export function createSkillsRouter(): Router {
     "GET",
     "media/:skill_id/play",
     handleSkillMediaPlayback,
-    [orgRoleGuardFromQuery("org_id", ["coach", "athlete", "parent"])],
   );
   router.add(
     "PATCH",
@@ -61,7 +60,6 @@ export function createSkillsRouter(): Router {
     "GET",
     ":id",
     handleSkillById,
-    [orgRoleGuardFromQuery("org_id", ["coach", "athlete", "parent"])],
   );
 
   return router;

@@ -326,7 +326,7 @@ export async function handleSkillMediaPlayback(
   req: Request,
   origin: string | null,
   params?: Record<string, string>,
-  ctx?: RequestContext,
+  _ctx?: RequestContext,
 ) {
   if (req.method !== "GET") return badRequest("Method not allowed", origin);
 
@@ -334,8 +334,6 @@ export async function handleSkillMediaPlayback(
   if (!isUuid(skill_id)) return badRequest("skill_id (UUID) is required", origin);
 
   const url = new URL(req.url);
-  const org_id = ctx?.org_id ?? url.searchParams.get("org_id") ?? "";
-  if (!isUuid(org_id)) return badRequest("org_id (UUID) is required", origin);
 
   const rawExpires = url.searchParams.get("expires_in");
   const parsedExpires = rawExpires ? Number.parseInt(rawExpires, 10) : NaN;
@@ -343,7 +341,7 @@ export async function handleSkillMediaPlayback(
     ? Math.min(Math.max(parsedExpires, 60), 60 * 60 * 24)
     : 60 * 60;
 
-  const { data, error } = await getSkillMediaPlaybackUrl(skill_id, org_id, expires_in);
+  const { data, error } = await getSkillMediaPlaybackUrl(skill_id, expires_in);
   if (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.toLowerCase().includes("not found")) {
@@ -397,18 +395,14 @@ export async function handleSkillById(
   req: Request,
   origin: string | null,
   params?: Record<string, string>,
-  ctx?: RequestContext,
+  _ctx?: RequestContext,
 ) {
   if (req.method !== "GET") return badRequest("Method not allowed", origin);
 
   const skill_id = params?.id ?? "";
   if (!isUuid(skill_id)) return badRequest("id (UUID) is required", origin);
 
-  const url = new URL(req.url);
-  const org_id = ctx?.org_id ?? url.searchParams.get("org_id") ?? "";
-  if (!isUuid(org_id)) return badRequest("org_id (UUID) is required", origin);
-
-  const { data, error } = await getSkillById({ skill_id, org_id });
+  const { data, error } = await getSkillById(skill_id);
   if (error) {
     const message = error instanceof Error ? error.message : String(error);
     return serverError(message, origin);

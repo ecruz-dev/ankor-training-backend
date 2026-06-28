@@ -1,5 +1,6 @@
 import { sbAdmin } from "./supabase.ts";
 import type {
+  SkillDrillMapBySkillListInput,
   SkillDrillMapCreateItem,
   SkillDrillMapListInput,
 } from "../dtos/skill_drill_map.dto.ts";
@@ -121,6 +122,35 @@ export async function listSkillDrillMaps(
   return { data: data ?? [], count: count ?? 0, error };
 }
 
+export async function listSkillDrillMapsBySkill(
+  input: SkillDrillMapBySkillListInput & { skill_id: string },
+): Promise<ServiceResult<unknown[]>> {
+  let query = sbAdmin!
+    .from("skill_drill_map")
+    .select(
+      `
+      org_id,
+      skill_id,
+      drill_id,
+      level,
+      created_at,
+      skill:skills(id, org_id, title, category, level),
+      drill:drills(id, org_id, name, level, duration_min)
+    `,
+      { count: "exact" },
+    )
+    .eq("skill_id", input.skill_id)
+    .order("created_at", { ascending: false })
+    .range(input.offset, input.offset + input.limit - 1);
+
+  if (input.drill_id) {
+    query = query.eq("drill_id", input.drill_id);
+  }
+
+  const { data, count, error } = await query;
+  return { data: data ?? [], count: count ?? 0, error };
+}
+
 export async function createSkillDrillMaps(args: {
   org_id: string;
   skill_id: string;
@@ -219,25 +249,13 @@ export async function bulkChangeSkillDrillMaps(args: {
 }
 
 export async function updateSkillDrillMap(args: {
-  org_id: string;
   skill_id: string;
   drill_id: string;
   level: number | null;
 }): Promise<ServiceResult<SkillDrillMapRow>> {
-  const skillCheck = await ensureSkillInOrg(args.org_id, args.skill_id);
-  if (!skillCheck.ok) {
-    return { data: null, error: skillCheck.error, notFound: true };
-  }
-
-  const drillCheck = await ensureDrillsInOrg(args.org_id, [args.drill_id]);
-  if (!drillCheck.ok) {
-    return { data: null, error: drillCheck.error, notFound: true };
-  }
-
   const { data, error } = await sbAdmin!
     .from("skill_drill_map")
     .update({ level: args.level })
-    .eq("org_id", args.org_id)
     .eq("skill_id", args.skill_id)
     .eq("drill_id", args.drill_id)
     .select("org_id, skill_id, drill_id, level, created_at")

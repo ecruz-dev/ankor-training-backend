@@ -1,5 +1,6 @@
 import { sbAdmin } from "../services/supabase.ts";
 import {
+  getOrganizationById,
   listOrganizations,
   updateOrganization,
   type ListOrganizationsFilters,
@@ -234,6 +235,26 @@ export async function listOrganizationsController(req: Request): Promise<Respons
     offset: parsed.value.offset,
     data,
   });
+}
+
+export async function getOrganizationByIdController(
+  req: Request,
+  _origin?: string | null,
+  params?: Record<string, string>,
+): Promise<Response> {
+  if (req.method !== "GET") return methodNotAllowed(["GET"]);
+
+  const id = params?.id ?? "";
+  if (!RE_UUID.test(id)) return httpBadRequest("id (UUID) is required");
+
+  const { data, error } = await getOrganizationById(id);
+  if (error) {
+    console.error("[getOrganizationByIdController] lookup error", error);
+    return internalError(error, "Failed to get organization");
+  }
+  if (!data) return notFound("Organization not found");
+
+  return httpJson(200, { ok: true, data });
 }
 
 export async function updateOrganizationController(

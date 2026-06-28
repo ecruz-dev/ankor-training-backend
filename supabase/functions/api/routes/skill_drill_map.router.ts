@@ -33,7 +33,6 @@ export function createSkillDrillMapRouter(): Router {
     "GET",
     ":skill_id",
     listSkillDrillMapsBySkillController,
-    [orgRoleGuardFromQuery("org_id", ["coach", "athlete", "parent"])],
   );
 
   router.add(
@@ -47,7 +46,6 @@ export function createSkillDrillMapRouter(): Router {
     "PATCH",
     ":skill_id/:drill_id",
     updateSkillDrillMapController,
-    [orgRoleGuardFromBody("org_id", ["coach"])],
   );
 
   router.add(

@@ -32,7 +32,6 @@ export const CreateSkillDrillMapSchema = z.object({
 });
 
 export const UpdateSkillDrillMapSchema = z.object({
-  org_id: uuid(),
   level: z.number({ coerce: true }).int().optional().nullable(),
 }).refine((data) => Object.prototype.hasOwnProperty.call(data, "level"), {
   message: "level is required",
@@ -67,10 +66,17 @@ export const SkillDrillMapListSchema = z.object({
   offset: z.number({ coerce: true }).int().min(0).optional().default(0),
 });
 
+export const SkillDrillMapBySkillListSchema = SkillDrillMapListSchema.omit({
+  org_id: true,
+});
+
 export type CreateSkillDrillMapInput = z.infer<typeof CreateSkillDrillMapSchema>;
 export type BulkSkillDrillMapInput = z.infer<typeof BulkSkillDrillMapSchema>;
 export type UpdateSkillDrillMapInput = z.infer<typeof UpdateSkillDrillMapSchema>;
 export type SkillDrillMapListInput = z.infer<typeof SkillDrillMapListSchema>;
+export type SkillDrillMapBySkillListInput = z.infer<
+  typeof SkillDrillMapBySkillListSchema
+>;
 
 export type SkillDrillMapCreateItem = {
   drill_id: string;

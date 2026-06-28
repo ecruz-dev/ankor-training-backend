@@ -281,7 +281,7 @@ export async function updateDrillController(
   req: Request,
   _origin: string | null,
   params?: { id?: string },
-  ctx?: RequestContext,
+  _ctx?: RequestContext,
 ): Promise<Response> {
   if (req.method !== "PATCH") {
     return methodNotAllowed(["PATCH"]);
@@ -321,20 +321,14 @@ export async function updateDrillController(
     return badRequest("No updates provided");
   }
 
-  const url = new URL(req.url);
-  const org_id = (ctx?.org_id ?? url.searchParams.get("org_id") ?? "").trim();
-  if (!RE_UUID.test(org_id)) {
-    return badRequest("org_id (UUID) is required");
-  }
-
-  const { data, error } = await updateDrill(drill_id, org_id, parsed.data);
+  const { data, error } = await updateDrill(drill_id, parsed.data);
 
   if (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.toLowerCase().includes("not found")) {
       return jsonResponse({ ok: false, error: "Drill not found" }, { status: 404 });
     }
-    if (message.toLowerCase().includes("do not belong")) {
+    if (message.toLowerCase().includes("invalid drill tags")) {
       return badRequest(message);
     }
     return internalError(error, "Failed to update drill");
@@ -347,7 +341,7 @@ export async function getDrillMediaPlaybackController(
   req: Request,
   _origin: string | null,
   params?: { drill_id?: string },
-  ctx?: RequestContext,
+  _ctx?: RequestContext,
 ): Promise<Response> {
   if (req.method !== "GET") {
     return methodNotAllowed(["GET"]);
@@ -368,11 +362,6 @@ export async function getDrillMediaPlaybackController(
   }
 
   const url = new URL(req.url);
-  const org_id = (ctx?.org_id ?? url.searchParams.get("org_id") ?? "").trim();
-  if (!RE_UUID.test(org_id)) {
-    return badRequest("org_id (UUID) is required");
-  }
-
   const rawExpires = url.searchParams.get("expires_in");
   const parsedExpires = rawExpires ? Number.parseInt(rawExpires, 10) : NaN;
   const expires_in = Number.isFinite(parsedExpires)
@@ -381,7 +370,6 @@ export async function getDrillMediaPlaybackController(
 
   const { data, error } = await getDrillMediaPlaybackUrl(
     parsed.data.drill_id,
-    org_id,
     expires_in,
   );
 

@@ -73,6 +73,36 @@ export async function requireSysAdmin(
   return { ok: true };
 }
 
+export async function requireAdminOrSysAdmin(
+  user: AuthUser,
+): Promise<{ ok: true } | { response: Response }> {
+  const appRole =
+    typeof user.app_metadata?.role === "string"
+      ? user.app_metadata.role.trim().toLowerCase()
+      : "";
+  if (appRole === "admin" || appRole === "sys-admin") return { ok: true };
+
+  const client = sbAdmin;
+  if (!client) return { response: forbidden("Auth admin client not configured") };
+
+  const { data, error } = await client
+    .from("profiles")
+    .select("role")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error) return { response: forbidden("Unable to verify user role") };
+
+  const profileRole =
+    typeof data?.role === "string" ? data.role.trim().toLowerCase() : "";
+
+  if (profileRole !== "admin" && profileRole !== "sys-admin") {
+    return { response: forbidden("Only admin or sys-admin users can perform this action") };
+  }
+
+  return { ok: true };
+}
+
 async function ensureUser(
   req: Request,
   ctx: RequestContext,

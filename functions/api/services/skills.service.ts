@@ -305,19 +305,13 @@ export async function listSkills(params: {
   return await query;
 }
 
-export async function getSkillById(params: {
-  skill_id: string;
-  org_id: string;
-}) {
-  const { skill_id, org_id } = params;
-
+export async function getSkillById(skill_id: string) {
   return await sbAdmin!
     .from("skills")
     .select(
       "id, org_id, sport_id, category, title, description, level, visibility, status, created_at, updated_at",
     )
     .eq("id", skill_id)
-    .eq("org_id", org_id)
     .maybeSingle();
 }
 
@@ -660,17 +654,11 @@ export async function uploadSkillMediaBatch(
 
 export async function getSkillMediaPlaybackUrl(
   skill_id: string,
-  org_id: string,
   expires_in: number,
 ): Promise<{ data: SkillMediaPlaybackDto | null; error: unknown }> {
   const client = sbAdmin;
   if (!client) {
     return { data: null, error: new Error("Supabase client not initialized") };
-  }
-
-  const { error: skillError } = await ensureSkillOrg(skill_id, org_id);
-  if (skillError) {
-    return { data: null, error: skillError };
   }
 
   const { data: row, error } = await client

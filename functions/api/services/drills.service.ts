@@ -216,17 +216,11 @@ export async function createDrillMediaUploadUrl(
 
 export async function getDrillMediaPlaybackUrl(
   drill_id: string,
-  org_id: string,
   expires_in: number,
 ): Promise<{ data: DrillMediaPlaybackDto | null; error: unknown }> {
   const client = sbAdmin;
   if (!client) {
     return { data: null, error: new Error("Supabase client not initialized") };
-  }
-
-  const { error: drillError } = await ensureDrillOrg(drill_id, org_id);
-  if (drillError) {
-    return { data: null, error: drillError };
   }
 
   const { data: row, error } = await client
@@ -542,7 +536,6 @@ export async function createDrill(dto: CreateDrillDto): Promise<{
 
 export async function updateDrill(
   drill_id: string,
-  org_id: string,
   input: UpdateDrillInput,
 ): Promise<{ data: unknown; error: unknown }> {
   const client = sbAdmin;
@@ -576,7 +569,6 @@ export async function updateDrill(
       .from("drills")
       .update(patch)
       .eq("id", drill_id)
-      .eq("org_id", org_id)
       .select("id");
 
     if (error) {
@@ -590,8 +582,7 @@ export async function updateDrill(
     const { data, error } = await client
       .from("drills")
       .select("id")
-      .eq("id", drill_id)
-      .eq("org_id", org_id);
+      .eq("id", drill_id);
 
     if (error) {
       return { data: null, error };
@@ -610,7 +601,6 @@ export async function updateDrill(
     const { data: tags, error } = await client
       .from("drill_tags")
       .select("id")
-      .eq("org_id", org_id)
       .in("id", addTagIds);
 
     if (error) {
@@ -621,7 +611,7 @@ export async function updateDrill(
     if (addTagIds.some((id) => !foundTagIds.has(id))) {
       return {
         data: null,
-        error: new Error("One or more drill tags do not belong to this organization"),
+        error: new Error("Invalid drill tags"),
       };
     }
   }
@@ -649,7 +639,7 @@ export async function updateDrill(
     }
   }
 
-  const { data, error } = await getDrillById(drill_id, org_id);
+  const { data, error } = await getDrillById(drill_id);
   if (error) {
     return { data: null, error };
   }
@@ -890,7 +880,7 @@ function mapDrillMediaRow(row: any): DrillMediaRecordDto {
 
 export async function getDrillById(
   drill_id: string,
-  org_id: string,
+  org_id?: string,
 ): Promise<{
   data: DrillDto | null;
   error: unknown;
@@ -900,22 +890,25 @@ export async function getDrillById(
     return { data: null, error: new Error("Supabase client not initialized") };
   }
 
-  const { data: orgRow, error: orgError } = await client
-    .from("organizations")
-    .select("sport_id")
-    .eq("id", org_id)
-    .maybeSingle();
+  let sportId: string | null = null;
+  if (org_id) {
+    const { data: orgRow, error: orgError } = await client
+      .from("organizations")
+      .select("sport_id")
+      .eq("id", org_id)
+      .maybeSingle();
 
-  if (orgError) {
-    return { data: null, error: orgError };
+    if (orgError) {
+      return { data: null, error: orgError };
+    }
+
+    sportId = orgRow?.sport_id ?? null;
+    if (!sportId) {
+      return { data: null, error: null };
+    }
   }
 
-  const sportId = orgRow?.sport_id ?? null;
-  if (!sportId) {
-    return { data: null, error: null };
-  }
-
-  const { data, error } = await client
+  let query = client
     .from("drills")
     .select(`
       id,
@@ -934,9 +927,13 @@ export async function getDrillById(
       created_at,
       updated_at
     `)
-    .eq("id", drill_id)
-    .eq("sport_id", sportId)
-    .maybeSingle();
+    .eq("id", drill_id);
+
+  if (sportId) {
+    query = query.eq("sport_id", sportId);
+  }
+
+  const { data, error } = await query.maybeSingle();
 
   if (error) {
     return { data: null, error };
