@@ -4,6 +4,11 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "prettier": "3.9.6",
     "supabase": "^2.54.10"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   }
 }
